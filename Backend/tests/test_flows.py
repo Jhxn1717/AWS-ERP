@@ -1,0 +1,448 @@
+import os
+import tempfile
+import unittest
+import io
+from PIL import Image, PngImagePlugin
+
+tmp = tempfile.TemporaryDirectory()
+os.environ['DATABASE_URL'] = os.getenv('TEST_DATABASE_URL') or 'sqlite:///' + tmp.name.replace('\\', '/') + '/test.db'
+os.environ['DOCUMENTS_DIR'] = tmp.name + '/uploads'
+from fastapi.testclient import TestClient
+from alembic import command
+from alembic.config import Config
+command.upgrade(Config('alembic.ini'), 'head')
+from app.main import app, engine
+
+from app.seed import seed_demo
+seed_demo()
+
+client = TestClient(app)
+client.post('/api/v1/auth/setup',json={'name':'Admin de pruebas','email':'admin@example.test','password':'Testing-local-2026!'})
+
+def tearDownModule():
+    client.close()
+    engine.dispose()
+    tmp.cleanup()
+
+class BusinessFlowTests(unittest.TestCase):
+    def test_document_deletion_permissions_and_storage_failure(self):
+        from unittest.mock import patch
+        from pathlib import Path
+        owner=client.post('/api/v1/users',json={'name':'Autor documentos','email':'document-owner@example.test','password':'Testing-local-2026!','role':'Comercial'})
+        self.assertEqual(owner.status_code,201,owner.text)
+        with TestClient(app) as browser, TestClient(app) as anonymous:
+            self.assertEqual(browser.post('/api/v1/auth/login',json={'email':'document-owner@example.test','password':'Testing-local-2026!'}).status_code,200)
+            own=browser.post('/api/v1/documents',files={'file':('eliminar.txt',b'Documento temporal')}).json()
+            self.assertEqual(own['uploadedBy'],owner.json()['id'])
+            self.assertEqual(anonymous.delete(f"/api/v1/documents/{own['id']}").status_code,401)
+            admin_doc=client.post('/api/v1/documents',files={'file':('admin.txt',b'Solo administrador')}).json()
+            self.assertEqual(browser.delete(f"/api/v1/documents/{admin_doc['id']}").status_code,403)
+            workspace=browser.get('/api/v1/workspace').json()
+            stored=next(d for d in workspace['documents'] if d['id']==own['id'])
+            file_path=Path(os.environ['DOCUMENTS_DIR'])/stored['storageKey']
+            self.assertTrue(file_path.is_file())
+            with patch('app.operations.document_storage') as factory:
+                factory.return_value.delete.side_effect=OSError('storage unavailable')
+                self.assertEqual(browser.delete(f"/api/v1/documents/{own['id']}").status_code,503)
+            self.assertEqual(browser.get(f"/api/v1/documents/{own['id']}/download").status_code,200)
+            self.assertEqual(browser.delete(f"/api/v1/documents/{own['id']}").status_code,200)
+            self.assertFalse(file_path.exists())
+            self.assertEqual(browser.get(f"/api/v1/documents/{own['id']}/download").status_code,404)
+            self.assertEqual(browser.delete(f"/api/v1/documents/{own['id']}").status_code,404)
+            self.assertFalse(any(d['id']==own['id'] for d in self.workspace()['documents']))
+            self.assertTrue(any(a['name']=='Documento eliminado: eliminar.txt' for a in self.workspace()['audit']))
+            # Administrator can also remove an upload belonging to another user.
+            other=browser.post('/api/v1/documents',files={'file':('otro.txt',b'Temporal')}).json()
+            self.assertEqual(client.delete(f"/api/v1/documents/{other['id']}").status_code,200)
+            self.assertEqual(client.delete(f"/api/v1/documents/{admin_doc['id']}").status_code,200)
+
+    def test_required_fields_reject_whitespace_and_normalize(self):
+        before=self.workspace()
+        product={k:before['products'][0][k] for k in ['name','sku','category','price','cost','stock','minimum']}
+        for field in ['name','sku','category']:
+            self.assertEqual(client.post('/api/v1/products',json={**product,field:'   '}).status_code,422)
+        contact={'name':'  Cliente normalizado  ','taxId':'20777777771','email':'  test@example.test  '}
+        self.assertEqual(client.post('/api/v1/contacts/customers',json={**contact,'name':'   '}).status_code,422)
+        response=client.post('/api/v1/contacts/customers',json=contact)
+        self.assertEqual(response.status_code,201,response.text)
+        self.assertEqual(response.json()['name'],'Cliente normalizado')
+        self.assertEqual(response.json()['email'],'test@example.test')
+        self.assertEqual(client.post('/api/v1/users',json={'name':'   ','email':'empty@example.test','password':'Testing-local-2026!','role':'Consulta'}).status_code,422)
+        self.assertEqual(client.post('/api/v1/users',json={'name':'Usuario prueba','email':'blank-password@example.test','password':' '*12,'role':'Consulta'}).status_code,422)
+        self.assertEqual(client.post('/api/v1/contacts/customers',json={**contact,'taxId':'２０１０００００００１'}).status_code,422)
+        self.assertEqual(client.put('/api/v1/company',json={'name':'   ','taxId':'20100000001','email':'a@example.test','address':''}).status_code,422)
+        self.assertEqual(client.post('/api/v1/inventory/adjustments',json={'productId':product.get('id',before['products'][0]['id']),'quantity':1,'reason':'     '}).status_code,422)
+        self.assertEqual(client.post('/api/v1/documents',files={'file':('test.txt',b'Test')},data={'category':'   '}).status_code,422)
+
+    def test_numeric_limits_and_zero_cost_purchase(self):
+        before=self.workspace()
+        product=before['products'][0]
+        for invalid in [True,1.5]:
+            self.assertEqual(client.post('/api/v1/products',json={**product,'stock':invalid}).status_code,422)
+        self.assertEqual(client.post('/api/v1/products',json={**product,'minimum':1000001}).status_code,422)
+        response=client.post('/api/v1/orders/purchases',json={'contactId':before['suppliers'][0]['id'],'lines':[{'productId':product['id'],'quantity':100000},{'productId':product['id'],'quantity':1}]})
+        self.assertEqual(response.status_code,422,response.text)
+        self.assertEqual(self.workspace()['products'],before['products'])
+        created=client.post('/api/v1/products',json={'name':'Sin costo','sku':'ZERO-COST-TEST','category':'Prueba','price':10,'cost':0,'stock':1000000,'minimum':0})
+        self.assertEqual(created.status_code,201,created.text)
+        pid=created.json()['id']
+        purchase={'contactId':before['suppliers'][0]['id'],'lines':[{'productId':pid,'quantity':1}]}
+        self.assertEqual(client.post('/api/v1/orders/purchases',json=purchase).status_code,409)
+        self.assertEqual(client.post('/api/v1/inventory/adjustments',json={'productId':pid,'quantity':1,'reason':'Prueba de limite'}).status_code,409)
+        self.assertEqual(client.post('/api/v1/inventory/adjustments',json={'productId':pid,'quantity':-1,'reason':'Liberar espacio'}).status_code,201)
+        response=client.post('/api/v1/orders/purchases',json=purchase)
+        self.assertEqual(response.status_code,201,response.text)
+        self.assertEqual(response.json()['amount'],0)
+        self.assertEqual(response.json()['status'],'Pagado')
+        sale=client.post('/api/v1/orders/sales',json={'contactId':before['customers'][0]['id'],'lines':[{'productId':pid,'quantity':1}]})
+        self.assertEqual(sale.status_code,201,sale.text)
+        self.assertEqual(client.post('/api/v1/orders/purchases',json=purchase).status_code,201)
+        self.assertEqual(client.post(f"/api/v1/orders/sales/{sale.json()['id']}/cancel").status_code,409)
+
+    def test_deactivation_permanently_revokes_old_session(self):
+        response=client.post('/api/v1/users',json={'name':'Sesion revocada','email':'revoked@example.test','password':'Testing-local-2026!','role':'Consulta'})
+        self.assertEqual(response.status_code,201,response.text)
+        uid=response.json()['id']
+        with TestClient(app) as other:
+            self.assertEqual(other.post('/api/v1/auth/login',json={'email':'revoked@example.test','password':'Testing-local-2026!'}).status_code,200)
+            self.assertEqual(client.post(f'/api/v1/users/{uid}/toggle').status_code,200)
+            self.assertEqual(client.post(f'/api/v1/users/{uid}/toggle').status_code,200)
+            self.assertEqual(other.get('/api/v1/workspace').status_code,401)
+
+    def test_readiness_and_request_id(self):
+        from unittest.mock import patch
+        response=client.get('/api/v1/ready')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(len(response.headers['X-Request-ID']),32)
+        with patch.object(engine,'connect',side_effect=RuntimeError('database unavailable')):
+            self.assertEqual(client.get('/api/v1/ready').status_code,503)
+
+    def workspace(self): return client.get('/api/v1/workspace').json()
+
+    def test_sale_stock_payment_and_audit(self):
+        before = self.workspace()
+        p = before['products'][0]
+        body = {'contactId':before['customers'][0]['id'],'lines':[{'productId':p['id'],'quantity':1}]}
+        sale = client.post('/api/v1/orders/sales',json=body)
+        self.assertEqual(sale.status_code,201,sale.text)
+        sale = sale.json()
+        self.assertEqual(sale['amount'],p['price'])
+        after = self.workspace()
+        self.assertEqual(next(x for x in after['products'] if x['id']==p['id'])['stock'],p['stock']-1)
+        self.assertEqual(len(after['movements']),len(before['movements'])+1)
+        self.assertEqual(len(after['audit']),len(before['audit'])+1)
+        partial = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':100})
+        self.assertEqual(partial.status_code,201)
+        excessive = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':sale['amount']})
+        self.assertEqual(excessive.status_code,409)
+        final = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':sale['amount']-100})
+        self.assertEqual(final.status_code,201)
+        self.assertEqual(next(x for x in self.workspace()['sales'] if x['id']==sale['id'])['status'],'Pagado')
+
+    def test_failed_sale_rolls_back_all_lines(self):
+        before=self.workspace(); a,b=before['products'][:2]
+        response=client.post('/api/v1/orders/sales',json={'contactId':before['customers'][0]['id'],'lines':[{'productId':a['id'],'quantity':1},{'productId':b['id'],'quantity':b['stock']+1}]})
+        self.assertEqual(response.status_code,409)
+        after=self.workspace()
+        self.assertEqual(after['products'],before['products'])
+        self.assertEqual(after['sales'],before['sales'])
+        self.assertEqual(after['movements'],before['movements'])
+
+    def test_purchase_receives_stock(self):
+        before=self.workspace(); p=before['products'][0]
+        response=client.post('/api/v1/orders/purchases',json={'contactId':before['suppliers'][0]['id'],'lines':[{'productId':p['id'],'quantity':2}]})
+        self.assertEqual(response.status_code,201,response.text)
+        self.assertEqual(response.json()['amount'],p['cost']*2)
+        self.assertEqual(self.workspace()['products'][0]['stock'],p['stock']+2)
+
+    def test_validation_and_duplicate_sku(self):
+        p=self.workspace()['products'][0]
+        self.assertEqual(client.post('/api/v1/products',json={**p,'stock':-1}).status_code,422)
+        self.assertEqual(client.post('/api/v1/products',json=p).status_code,409)
+        self.assertEqual(client.post('/api/v1/contacts/customers',json={'name':'Prueba','taxId':'123','email':'a@b.com'}).status_code,422)
+
+    def test_duplicate_lines_cannot_overdraw_stock(self):
+        before=self.workspace(); p=before['products'][0]
+        response=client.post('/api/v1/orders/sales',json={'contactId':before['customers'][0]['id'],'lines':[{'productId':p['id'],'quantity':p['stock']},{'productId':p['id'],'quantity':1}]})
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(self.workspace()['products'],before['products'])
+
+    def test_documents_round_trip_and_restrictions(self):
+        response=client.post('/api/v1/documents',files={'file':('contrato.txt',b'Contrato de prueba','text/plain')},data={'category':'Contratos','reference':'TEST-1'})
+        self.assertEqual(response.status_code,201,response.text)
+        downloaded=client.get(f"/api/v1/documents/{response.json()['id']}/download")
+        self.assertEqual(downloaded.content,b'Contrato de prueba')
+        self.assertIn('attachment',downloaded.headers['content-disposition'])
+        self.assertEqual(client.post('/api/v1/documents',files={'file':('unsafe.html',b'<script/>')}).status_code,422)
+        self.assertEqual(client.get('/api/v1/documents/999999/download').status_code,404)
+
+    def test_edit_contact_product_and_adjustment(self):
+        before=self.workspace(); c=before['customers'][0]; p=before['products'][0]
+        r=client.put(f"/api/v1/contacts/customers/{c['id']}",json={**c,'name':'Cliente actualizado'})
+        self.assertEqual(r.status_code,200,r.text)
+        r=client.put(f"/api/v1/products/{p['id']}",json={**p,'name':'Producto actualizado'})
+        self.assertEqual(r.status_code,200,r.text)
+        self.assertEqual(client.put(f"/api/v1/products/{p['id']}",json={**p,'stock':99999}).status_code,409)
+        r=client.post('/api/v1/inventory/adjustments',json={'productId':p['id'],'quantity':3,'reason':'Conteo físico verificado'})
+        self.assertEqual(r.status_code,201,r.text)
+        self.assertEqual(r.json()['stock'],p['stock']+3)
+        self.assertEqual(client.post('/api/v1/inventory/adjustments',json={'productId':p['id'],'quantity':-100000,'reason':'Salida inválida'}).status_code,409)
+
+    def test_cancellation_reverts_stock_and_rejects_payment(self):
+        before=self.workspace(); p=before['products'][0]
+        sale=client.post('/api/v1/orders/sales',json={'contactId':before['customers'][0]['id'],'lines':[{'productId':p['id'],'quantity':2}]}).json()
+        cancelled=client.post(f"/api/v1/orders/sales/{sale['id']}/cancel")
+        self.assertEqual(cancelled.status_code,200,cancelled.text)
+        self.assertEqual(self.workspace()['products'][0]['stock'],p['stock'])
+        self.assertEqual(client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':1}).status_code,409)
+        self.assertEqual(client.post(f"/api/v1/orders/sales/{sale['id']}/cancel").status_code,409)
+
+    def test_sessions_roles_and_company(self):
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.get('/api/v1/workspace').status_code,401)
+            self.assertEqual(anonymous.get('/api/v1/auth/session').json()['needsSetup'],False)
+            self.assertEqual(anonymous.post('/api/v1/auth/login',json={'email':'admin@example.test','password':'incorrect'}).status_code,401)
+            self.assertEqual(anonymous.post('/api/v1/auth/setup',json={'name':'Otro','email':'otro@example.test','password':'Another-test-123!'}).status_code,409)
+        created=client.post('/api/v1/users',json={'name':'Lector','email':'reader@example.test','password':'Reader-test-2026!','role':'Consulta'})
+        self.assertEqual(created.status_code,201,created.text)
+        self.assertNotIn('password',created.json())
+        with TestClient(app) as reader:
+            login=reader.post('/api/v1/auth/login',json={'email':'reader@example.test','password':'Reader-test-2026!'})
+            self.assertEqual(login.status_code,200)
+            self.assertTrue(login.cookies.get('enterprisecloud_session'))
+            self.assertIn('HttpOnly',login.headers['set-cookie'])
+            self.assertEqual(reader.get('/api/v1/workspace').status_code,200)
+            self.assertEqual(reader.get('/api/v1/users').status_code,403)
+            self.assertEqual(reader.get('/api/v1/admin/overview').status_code,403)
+            self.assertEqual(reader.get('/api/v1/admin/sessions').status_code,403)
+            p=self.workspace()['products'][0]
+            self.assertEqual(reader.post('/api/v1/products',json=p).status_code,403)
+            self.assertEqual(reader.post('/api/v1/documents',files={'file':('test.txt',b'read only')}).status_code,403)
+            self.assertEqual(client.post(f"/api/v1/users/{created.json()['id']}/toggle").status_code,200)
+            self.assertEqual(reader.get('/api/v1/workspace').status_code,401)
+        company={'name':'Empresa de prueba SAC','taxId':'20111111111','email':'test@example.test','phone':'123','address':'Lima'}
+        self.assertEqual(client.put('/api/v1/company',json=company).status_code,200)
+        self.assertEqual(client.get('/api/v1/company').json(),company)
+
+    def test_admin_panel_permissions_and_session_management(self):
+        overview=client.get('/api/v1/admin/overview')
+        self.assertEqual(overview.status_code,200,overview.text)
+        self.assertGreaterEqual(overview.json()['admins'],1)
+        me=client.get('/api/v1/auth/session').json()['user']
+        self.assertEqual(client.patch(f"/api/v1/users/{me['id']}",json={**me,'role':'Consulta'}).status_code,409)
+        created=client.post('/api/v1/users',json={'name':'Operador de prueba','email':'operator@example.test','password':'Operator-test-2026!','role':'Comercial'}).json()
+        with TestClient(app) as operator:
+            self.assertEqual(operator.post('/api/v1/auth/login',json={'email':created['email'],'password':'Operator-test-2026!'}).status_code,200)
+            updated=client.patch(f"/api/v1/users/{created['id']}",json={'name':'Operador actualizado','email':created['email'],'role':'Consulta'})
+            self.assertEqual(updated.status_code,200,updated.text)
+            self.assertNotIn('password',updated.json())
+            self.assertEqual(operator.get('/api/v1/workspace').status_code,401)
+            operator.post('/api/v1/auth/login',json={'email':created['email'],'password':'Operator-test-2026!'})
+            sessions=client.get('/api/v1/admin/sessions').json()
+            self.assertTrue(all('token' not in s for s in sessions))
+            target=next(s for s in sessions if s['userId']==created['id'])
+            self.assertEqual(client.delete(f"/api/v1/admin/sessions/{target['id']}").status_code,200)
+            self.assertEqual(operator.get('/api/v1/workspace').status_code,401)
+            current=next(s for s in sessions if s['current'])
+            self.assertEqual(client.delete(f"/api/v1/admin/sessions/{current['id']}").status_code,409)
+        with TestClient(app) as anon:
+            self.assertEqual(anon.get('/api/v1/admin/overview').status_code,401)
+
+    def test_administration_hidden_from_every_non_admin_role(self):
+        for index,role in enumerate(['Comercial','Compras','Almacén','Finanzas','Consulta']):
+            email=f'restricted{index}@example.test'
+            created=client.post('/api/v1/users',json={'name':'Acceso restringido','email':email,'password':'Restricted-test-2026!','role':role})
+            self.assertEqual(created.status_code,201,created.text)
+            with TestClient(app) as restricted:
+                restricted.post('/api/v1/auth/login',json={'email':email,'password':'Restricted-test-2026!'})
+                for path in ['admin/overview','admin/sessions','users']:
+                    self.assertEqual(restricted.get('/api/v1/'+path).status_code,403,role+' '+path)
+                self.assertEqual(restricted.get('/api/v1/workspace').json()['audit'],[],role)
+        self.assertTrue(self.workspace()['audit'])
+
+    def test_personal_profile_is_owned_and_cannot_elevate_permissions(self):
+        created=client.post('/api/v1/users',json={'name':'Perfil de prueba','email':'profile@example.test','password':'Profile-test-2026!','role':'Consulta'}).json()
+        with TestClient(app) as owner:
+            owner.post('/api/v1/auth/login',json={'email':created['email'],'password':'Profile-test-2026!'})
+            profile=owner.get('/api/v1/me/profile').json()['profile']
+            updated={**profile,'name':'Nombre actualizado','alias':'Mi alias','bio':'Biografía de prueba','organization':'Mi organización','avatarColor':'blue','weeklySummary':True}
+            response=owner.patch('/api/v1/me/profile',json=updated)
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(owner.get('/api/v1/me/profile').json()['profile'],updated)
+            self.assertEqual(owner.get('/api/v1/auth/session').json()['user']['name'],updated['name'])
+            self.assertEqual(owner.patch('/api/v1/me/profile',json={**updated,'role':'Administrador'}).status_code,422)
+            self.assertEqual(owner.patch('/api/v1/me/profile',json={**updated,'id':1}).status_code,422)
+            self.assertEqual(owner.patch('/api/v1/me/profile',json={**updated,'name':'   '}).status_code,422)
+            self.assertEqual(owner.get('/api/v1/admin/overview').status_code,403)
+            exported=owner.get('/api/v1/me/export').json()
+            self.assertEqual(exported['account']['id'],created['id'])
+            self.assertEqual(exported['account']['role'],'Consulta')
+            self.assertNotIn('password',exported['account'])
+            self.assertNotIn('token',str(exported))
+        self.assertNotEqual(client.get('/api/v1/me/profile').json()['profile']['name'],updated['name'])
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.get('/api/v1/me/profile').status_code,401)
+            self.assertEqual(anonymous.get('/api/v1/me/export').status_code,401)
+
+    def test_profile_photo_upload_validation_and_access(self):
+        image=io.BytesIO();metadata=PngImagePlugin.PngInfo();metadata.add_text('private-note','should be stripped')
+        Image.new('RGBA',(1024,512),(30,140,110,200)).save(image,format='PNG',pnginfo=metadata)
+        created=client.post('/api/v1/users',json={'name':'Foto de prueba','email':'photo@example.test','password':'Photo-test-2026!','role':'Consulta'}).json()
+        other=client.post('/api/v1/users',json={'name':'Otro perfil','email':'other-photo@example.test','password':'Other-photo-2026!','role':'Consulta'}).json()
+        with TestClient(app) as owner,TestClient(app) as stranger:
+            owner.post('/api/v1/auth/login',json={'email':created['email'],'password':'Photo-test-2026!'})
+            stranger.post('/api/v1/auth/login',json={'email':other['email'],'password':'Other-photo-2026!'})
+            response=owner.post('/api/v1/me/avatar',files={'file':('profile.png',image.getvalue(),'image/png')})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertNotIn('avatarKey',response.json()['user'])
+            url=response.json()['user']['avatarUrl']
+            photo=owner.get(url)
+            self.assertEqual(photo.status_code,200)
+            self.assertEqual(photo.headers['content-type'],'image/png')
+            with Image.open(io.BytesIO(photo.content)) as saved_image:
+                self.assertEqual(saved_image.size,(512,256))
+                self.assertNotIn('private-note',saved_image.info)
+            self.assertEqual(stranger.get(url).status_code,403)
+            self.assertEqual(client.get(url).status_code,200)
+            listed=next(u for u in client.get('/api/v1/users').json()['users'] if u['id']==created['id'])
+            self.assertEqual(listed['avatarUrl'],url)
+            self.assertNotIn('avatarKey',listed)
+            self.assertEqual(owner.post('/api/v1/me/avatar',files={'file':('bad.jpg',b'<script>not an image</script>','image/jpeg')}).status_code,422)
+            self.assertEqual(owner.post('/api/v1/me/avatar',files={'file':('large.png',b'x'*(5*1024*1024+1),'image/png')}).status_code,413)
+            self.assertEqual(owner.get('/api/v1/auth/session').json()['user']['avatarUrl'],url)
+            replacement=owner.post('/api/v1/me/avatar',files={'file':('new.png',image.getvalue(),'image/png')}).json()['user']['avatarUrl']
+            self.assertNotEqual(replacement,url)
+            self.assertEqual(owner.get(url).status_code,404)
+            with TestClient(app) as anonymous:
+                self.assertEqual(anonymous.get(replacement).status_code,401)
+            self.assertEqual(owner.delete('/api/v1/me/avatar').status_code,200)
+            self.assertNotIn('avatarUrl',owner.get('/api/v1/auth/session').json()['user'])
+            self.assertEqual(owner.get(replacement).status_code,404)
+
+if __name__=='__main__': unittest.main()
+
+
+class GoogleAuthTests(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import patch
+        self.env=patch.dict(os.environ, GOOGLE_CLIENT_ID='test-client.apps.googleusercontent.com',
+            GOOGLE_ADMIN_EMAIL='google-admin@gmail.com', GOOGLE_ALLOW_SIGNUP='false', GOOGLE_ALLOWED_EMAILS='allowed@gmail.com,disabled@gmail.com')
+        self.env.start()
+        self.browser=TestClient(app)
+
+    def tearDown(self):
+        self.browser.close()
+        self.env.stop()
+
+    def sign_in(self,email='google-admin@gmail.com',subject='google-admin-subject',intent='register',**extra):
+        from unittest.mock import patch
+        nonce=self.browser.get('/api/v1/auth/google/challenge').json()['nonce']
+        claims={'sub':subject,'email':email,'email_verified':True,'nonce':nonce,'name':'Google User',**extra}
+        with patch('app.google_login.verify_credential',return_value=claims):
+            return self.browser.post('/api/v1/auth/google',json={'credential':'signed-token','intent':intent},headers={'Origin':'http://localhost:5173'})
+
+    def test_configuration_and_disabled_login(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ,GOOGLE_CLIENT_ID=''):
+            self.assertFalse(self.browser.get('/api/v1/auth/google/config').json()['enabled'])
+            self.assertEqual(self.browser.get('/api/v1/auth/google/challenge').status_code,503)
+
+    def test_designated_admin_and_session(self):
+        response=self.sign_in()
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['role'],'Administrador')
+        self.assertNotIn('password',response.json())
+        self.assertIn('HttpOnly',response.headers['set-cookie'])
+        self.assertEqual(self.browser.get('/api/v1/auth/session').json()['user']['email'],'google-admin@gmail.com')
+        self.assertEqual(self.browser.get('/api/v1/users').status_code,200)
+        self.assertEqual(self.sign_in(intent='login').json()['id'],response.json()['id'])
+
+    def test_allowed_new_user_has_only_read_access(self):
+        response=self.sign_in('allowed@gmail.com','allowed-subject')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['role'],'Consulta')
+        self.assertEqual(self.browser.get('/api/v1/users').status_code,403)
+        self.assertEqual(self.browser.post('/api/v1/products',json={}).status_code,403)
+
+    def test_unknown_unverified_and_mismatched_nonce_rejected(self):
+        self.assertEqual(self.sign_in('unknown@gmail.com','unknown').status_code,403)
+        self.assertEqual(self.sign_in('allowed@gmail.com','other',email_verified=False).status_code,401)
+        self.assertEqual(self.sign_in('allowed@gmail.com','other',nonce='wrong-nonce').status_code,401)
+
+    def test_login_requires_origin_cookie_and_single_use_challenge(self):
+        from unittest.mock import patch
+        nonce=self.browser.get('/api/v1/auth/google/challenge').json()['nonce']
+        claims={'sub':'allowed-subject','email':'allowed@gmail.com','email_verified':True,'nonce':nonce,'name':'Allowed'}
+        with patch('app.google_login.verify_credential',return_value=claims):
+            self.assertEqual(self.browser.post('/api/v1/auth/google',json={'credential':'token'},headers={'Origin':'https://evil.example'}).status_code,403)
+            first=self.browser.post('/api/v1/auth/google',json={'credential':'token'},headers={'Origin':'http://localhost:5173'})
+            self.assertEqual(first.status_code,200,first.text)
+            self.browser.cookies.set('enterprisecloud_google_nonce',nonce,path='/api/v1/auth/google')
+            self.assertEqual(self.browser.post('/api/v1/auth/google',json={'credential':'token'},headers={'Origin':'http://localhost:5173'}).status_code,401)
+
+    def test_disabled_account_and_invalid_signature_cannot_enter(self):
+        from unittest.mock import patch
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select
+        from app.models import User
+        with Session(engine) as s,s.begin():
+            u=s.scalar(select(User).where(User.email=='disabled@gmail.com'))
+            if not u:
+                from app.main import add_record
+                u=add_record(s,'users',dict(name='Disabled',email='disabled@gmail.com',password='unusable',role='Consulta',status='Inactivo'))
+        self.assertEqual(self.sign_in('disabled@gmail.com','disabled-subject').status_code,403)
+        self.browser.get('/api/v1/auth/google/challenge')
+        with patch('app.google_login.verify_credential',side_effect=ValueError('bad signature')):
+            self.assertEqual(self.browser.post('/api/v1/auth/google',json={'credential':'forged'},headers={'Origin':'http://localhost:5173'}).status_code,401)
+
+
+    def test_public_gmail_registration_role_assignment_and_repeat_login(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, GOOGLE_ALLOW_SIGNUP='true'):
+            self.assertTrue(self.browser.get('/api/v1/auth/google/config').json()['signupEnabled'])
+            response=self.sign_in('new-student@gmail.com','new-student-subject',role='Administrador')
+            self.assertEqual(response.status_code,200,response.text)
+            user=response.json()
+            self.assertEqual(user['role'],'Consulta')
+            self.assertEqual(self.browser.get('/api/v1/users').status_code,403)
+            self.assertEqual(self.browser.patch('/api/v1/users/'+str(user['id']),json={'name':user['name'],'email':user['email'],'role':'Administrador'}).status_code,403)
+            self.assertEqual(self.browser.post('/api/v1/products',json={}).status_code,403)
+            update=client.patch('/api/v1/users/'+str(user['id']),json={'name':user['name'],'email':user['email'],'role':'Comercial'})
+            self.assertEqual(update.status_code,200,update.text)
+            self.assertIsNone(self.browser.get('/api/v1/auth/session').json()['user'])
+            again=self.sign_in('new-student@gmail.com','new-student-subject',intent='login')
+            self.assertEqual(again.status_code,200,again.text)
+            self.assertEqual(again.json()['id'],user['id'])
+            self.assertEqual(again.json()['role'],'Comercial')
+
+    def test_public_signup_rejects_non_gmail_and_unverified_accounts(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, GOOGLE_ALLOW_SIGNUP='true'):
+            self.assertEqual(self.sign_in('student@company.test','workspace-student',hd='company.test').status_code,403)
+            self.assertEqual(self.sign_in('unverified@gmail.com','unverified-student',email_verified=False).status_code,401)
+
+
+    def test_login_and_registration_are_distinct_and_do_not_create_duplicates(self):
+        from unittest.mock import patch
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+        from app.models import User, GoogleIdentity
+        with patch.dict(os.environ,GOOGLE_ALLOW_SIGNUP='true'):
+            email='separate-flows@gmail.com'
+            rejected=self.sign_in(email,'separate-flows',intent='login')
+            self.assertEqual(rejected.status_code,404,rejected.text)
+            self.assertIsNone(self.browser.get('/api/v1/auth/session').json()['user'])
+            with Session(engine) as s:
+                self.assertIsNone(s.scalar(select(User).where(User.email==email)))
+                self.assertIsNone(s.get(GoogleIdentity,'separate-flows'))
+            registered=self.sign_in(email,'separate-flows',intent='register')
+            self.assertEqual(registered.status_code,200,registered.text)
+            self.browser.post('/api/v1/auth/logout')
+            duplicate=self.sign_in(email,'separate-flows',intent='register')
+            self.assertEqual(duplicate.status_code,409,duplicate.text)
+            self.assertIsNone(self.browser.get('/api/v1/auth/session').json()['user'])
+            logged_in=self.sign_in(email,'separate-flows',intent='login')
+            self.assertEqual(logged_in.status_code,200,logged_in.text)
+            self.assertEqual(logged_in.json()['id'],registered.json()['id'])
+            with Session(engine) as s:
+                self.assertEqual(len(list(s.scalars(select(User).where(User.email==email)))),1)

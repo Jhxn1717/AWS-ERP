@@ -1,0 +1,23 @@
+node_modules/
+.npm-cache/
+*.tsbuildinfo
+dist/
+__pycache__/
+*.db
+.env
+.env.*
+!.env.example
+.venv/
+*.pyc
+Backend/uploads/
+tmp/
+output/
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+.pytest_cache/
+.ruff_cache/
+# Local screenshots can contain account information.
+docs/*.png
