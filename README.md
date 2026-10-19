@@ -1,6 +1,19 @@
 # EnterpriseCloud ERP
 
-ERP local basado en el Documento Maestro del Sistema Empresarial (2026). Interfaz en español, React + TypeScript, API FastAPI y SQLAlchemy. Incluye sesiones, roles, documentos y operaciones transaccionales. La conexión AWS y la validación contable/fiscal requieren una fase de implementación y aceptación independiente.
+ERP basado en el Documento Maestro del Sistema Empresarial (2026). Interfaz en español, React + TypeScript, API FastAPI y SQLAlchemy. Incluye sesiones, roles, documentos y operaciones transaccionales. La conexión AWS y la validación contable/fiscal requieren una fase de implementación y aceptación independiente.
+
+## Aplicación publicada
+
+**ERP en línea:** https://aws-erp.vercel.app — requiere una cuenta autorizada.
+
+- **Frontend:** React + TypeScript, compilado con Vite y ejecutado en el navegador.
+- **Backend:** Python + FastAPI, ejecutado como una función serverless en Vercel.
+- **Base de datos:** PostgreSQL alojado en Neon.
+- **Archivos:** documentos y fotos privados almacenados en PostgreSQL; la API controla su acceso.
+
+Frontend y backend comparten dominio. Vercel dirige `/api/` a FastAPI y sirve la interfaz para las demás rutas. El navegador consulta la API; las credenciales de PostgreSQL permanecen en el servidor.
+
+Consultar [despliegue en Vercel](docs/vercel.md) para variables de entorno, migraciones y configuración de Google. El repositorio no incluye credenciales, sesiones, bases de datos ni archivos de usuarios. Los datos de la presentación están en la base publicada y no se descargan al clonar el código.
 
 ## Cómo está organizado
 
@@ -59,7 +72,7 @@ En el primer acceso, crear la cuenta administradora con nombre, correo y una con
 
 Acceder desde el avatar superior → Ver mi perfil o mediante `http://127.0.0.1:5173/#mi-perfil`. Está disponible para todos los roles. Cada usuario solo puede modificar su propia información personal; esta API no permite cambiar correo de acceso, rol ni estado. La edición del correo se realiza desde Administración. La opción Administración se mantiene únicamente en el menú de módulos, y solo para administradores; se eliminó la cuenta duplicada del pie del menú lateral.
 
-Las preferencias de correo se guardan; el envío requiere un proveedor externo que todavía no está conectado. El perfil permanece dentro del workspace y no se publica en Internet. La descarga JSON incluye datos de la cuenta y preferencias, sin contraseñas ni tokens de sesión.
+Las preferencias de correo se guardan; el envío requiere un proveedor externo que todavía no está conectado. El perfil es privado dentro del workspace; en el despliegue en línea requiere autenticación. La descarga JSON incluye datos de la cuenta y preferencias, sin contraseñas ni tokens de sesión.
 
 La foto de perfil admite JPG, PNG y WebP de hasta 5 MB y 16 megapíxeles. El servidor valida el contenido, corrige la orientación, elimina metadatos y genera una imagen PNG de hasta 512 × 512 píxeles. Se almacena en `Backend/uploads/avatars` y solo se entrega al propietario o a un administrador autenticado. Al cambiar o quitar la foto se retira la imagen anterior. Las iniciales y su color quedan como alternativa cuando no hay foto. La carga se guarda al seleccionar el archivo, independientemente de los cambios pendientes en los demás campos del perfil.
 
@@ -84,7 +97,7 @@ La API debe escuchar en loopback en esta configuración local. Los usuarios aute
 
 Los documentos se guardan con nombres internos aleatorios en `Backend/uploads`; sus metadatos se persisten en la base de datos. Los formatos permitidos son PDF, PNG, JPG, XLSX, DOCX, CSV y TXT. No hay conexión S3 activa ni escaneo antivirus. Respaldar la base y el directorio de archivos juntos.
 
-Antes de publicar: configurar HTTPS, `COOKIE_SECURE=true`, `ERP_ALLOWED_ORIGINS` (orígenes separados por comas), protección frente a intentos repetidos de acceso, recuperación de cuentas, migraciones y pruebas de concurrencia en PostgreSQL. No se implementan todavía cotizaciones, pedidos por aprobación, devoluciones, múltiples almacenes, conciliación bancaria ni comprobantes fiscales. El acceso público no está habilitado por esta entrega.
+Para un entorno de producción, configurar HTTPS, `COOKIE_SECURE=true`, `ERP_ALLOWED_ORIGINS` (orígenes separados por comas), protección frente a intentos repetidos de acceso, recuperación de cuentas, migraciones y pruebas de concurrencia en PostgreSQL. No se implementan todavía cotizaciones, pedidos por aprobación, devoluciones, múltiples almacenes, conciliación bancaria ni comprobantes fiscales. El despliegue en Vercel permite acceder por HTTPS y exige autenticación para los datos empresariales.
 
 ## PostgreSQL
 
@@ -116,4 +129,4 @@ Consultar [alcance y plan](docs/alcance.md). Sin despliegue ni recursos con cost
 
 ## Acceso con Google
 
-El inicio con Gmail/Workspace est? implementado y requiere configurar un ID de cliente web de Google. Consultar [activaci?n y permisos](docs/acceso-con-google.md).
+El inicio con Gmail/Workspace está implementado y requiere configurar un ID de cliente web de Google. Consultar [activación y permisos](docs/acceso-con-google.md).

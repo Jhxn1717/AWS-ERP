@@ -6,6 +6,8 @@ from sqlalchemy.engine import make_url
 
 ENV = os.getenv('ERP_ENV', 'development')
 DB_URL = os.getenv('DATABASE_URL', 'sqlite:///' + str(Path(__file__).resolve().parents[1] / 'enterprisecloud.db'))
+if DB_URL.startswith(('postgres://', 'postgresql://')):
+    DB_URL = 'postgresql+psycopg://' + DB_URL.split('://', 1)[1]
 if ENV not in {'development', 'test', 'production'}:
     raise RuntimeError('ERP_ENV must be development, test or production')
 if ENV == 'production':

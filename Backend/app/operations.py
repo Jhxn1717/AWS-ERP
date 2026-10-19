@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .validation import FormModel
+from .transfers import assembled_file, discard_parts, register_transfer_routes, PART_SIZE
 
 class Adjustment(FormModel):
     productId: int
@@ -25,6 +26,7 @@ class CompanyIn(FormModel):
 
 def register_operations(app,engine,Record,Product,ContactIn,ProductIn,add_record,audit,now,serialize):
     storage=document_storage()
+    register_transfer_routes(app, engine)
 
     @app.get('/api/v1/company')
     def company():
@@ -90,7 +92,11 @@ def register_operations(app,engine,Record,Product,ContactIn,ProductIn,add_record
             audit(s,'Operación anulada',kind,rid); return serialize(r)
 
     @app.post('/api/v1/documents',status_code=201)
-    async def upload(request:Request,file:UploadFile=File(...),category:str=Form('General'),reference:str=Form('')):
+    async def upload(request:Request,file:UploadFile|None=File(None),category:str=Form('General'),reference:str=Form(''),transfer:str=Form(''),parts:int=Form(0),filename:str=Form('')):
+        if transfer:
+            file=assembled_file(request,transfer,parts,filename,10*1024*1024)
+            discard_parts(request,transfer,parts)
+        if file is None: raise HTTPException(422,'Selecciona un archivo.')
         category=category.strip()
         reference=reference.strip()
         if not category: raise HTTPException(422,'Selecciona una categoría para el documento.')
@@ -136,7 +142,7 @@ def register_operations(app,engine,Record,Product,ContactIn,ProductIn,add_record
         return {'status':'ok'}
 
     @app.get('/api/v1/documents/{rid}/download')
-    def download(rid:int):
+    def download(rid:int,part:int|None=None):
         with Session(engine) as s:
             r=s.get(Record,rid)
             if not r or r.kind!='documents': raise HTTPException(404,'Documento no encontrado.')
@@ -146,6 +152,9 @@ def register_operations(app,engine,Record,Product,ContactIn,ProductIn,add_record
                 content=document_storage(r.data.get('storageProvider','local')).get(key)
             except FileNotFoundError:
                 raise HTTPException(404,'Archivo no disponible.')
+            if part is not None:
+                if part<0 or part*PART_SIZE>=len(content): raise HTTPException(404,'Parte no encontrada.')
+                content=content[part*PART_SIZE:(part+1)*PART_SIZE]
             return Response(content,media_type='application/octet-stream',headers={
                 'X-Content-Type-Options':'nosniff',
                 'Content-Disposition':"attachment; filename*=UTF-8''"+quote(r.data['name'],safe='')})

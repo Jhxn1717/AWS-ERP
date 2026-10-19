@@ -1,9 +1,14 @@
 """Database metadata; importing this module never connects to a database."""
 from decimal import Decimal
-from sqlalchemy import String, Integer, Numeric, JSON, ForeignKey, UniqueConstraint, CheckConstraint
+from sqlalchemy import String, Integer, Numeric, JSON, ForeignKey, UniqueConstraint, CheckConstraint, LargeBinary
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase): pass
+
+class StoredFile(Base):
+    __tablename__ = 'stored_files'
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
 
 class Record(Base):
     __tablename__ = 'records'

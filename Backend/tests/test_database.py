@@ -9,6 +9,28 @@ import unittest
 BACKEND = Path(__file__).resolve().parents[1]
 
 class DatabaseTests(unittest.TestCase):
+    def test_persistent_files_survive_storage_instances(self):
+        self.run_script('''
+from alembic import command
+from alembic.config import Config
+from app.storage import document_storage
+command.upgrade(Config('alembic.ini'), 'head')
+first = document_storage('database')
+first.put('avatar.png', b'original')
+second = document_storage('database')
+assert second.get('avatar.png') == b'original'
+second.put('avatar.png', b'replaced')
+assert first.get('avatar.png') == b'replaced'
+first.delete('avatar.png')
+first.delete('avatar.png')
+try:
+    second.get('avatar.png')
+except FileNotFoundError:
+    pass
+else:
+    raise AssertionError('Deleted files must not be served')
+''')
+
     def run_script(self, script, **overrides):
         with tempfile.TemporaryDirectory() as directory:
             env = {**os.environ, 'ERP_ENV':'test',

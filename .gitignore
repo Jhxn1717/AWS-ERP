@@ -1,4 +1,7 @@
 node_modules/
+.vercel/
+.agents/
+skills-lock.json
 .npm-cache/
 *.tsbuildinfo
 dist/

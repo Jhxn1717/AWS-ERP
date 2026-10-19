@@ -106,7 +106,7 @@ def register_security(app, engine, Record, add_record, audit, now):
                 return JSONResponse({'detail':'Origen no permitido.'},status_code=403)
             action = path.removeprefix('/api/v1/')
             allowed = ROLES.get(u.data['role'], [])
-            personal=(action=='me/profile' and request.method=='PATCH') or (action=='me/avatar' and request.method in ['POST','DELETE'])
+            personal=(action.startswith('me/transfers/') and request.method=='POST') or (action=='me/profile' and request.method=='PATCH') or (action=='me/avatar' and request.method in ['POST','DELETE'])
             permitted = '*' in allowed or action == 'auth/logout' or personal or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
             if not permitted: return JSONResponse({'detail':'Tu rol no permite esta operación.'},status_code=403)
         marker = actor.set(u.data['name'])

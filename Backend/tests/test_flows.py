@@ -25,6 +25,54 @@ def tearDownModule():
     tmp.cleanup()
 
 class BusinessFlowTests(unittest.TestCase):
+    def test_read_only_user_can_transfer_large_profile_photo(self):
+        import time
+        import uuid
+        from app.transfers import PART_SIZE
+        account=client.post('/api/v1/users',json={'name':'Large photo','email':'large-photo@example.test','password':'Transfer-photo-2026!','role':'Consulta'})
+        self.assertEqual(account.status_code,201,account.text)
+        image=io.BytesIO()
+        Image.new('RGB',(32,32),'green').save(image,format='PNG')
+        content=image.getvalue()+b'\0'*(4*1024*1024+1)
+        token=f'{int(time.time())}-{uuid.uuid4().hex}'
+        parts=(len(content)+PART_SIZE-1)//PART_SIZE
+        with TestClient(app) as owner:
+            owner.post('/api/v1/auth/login',json={'email':'large-photo@example.test','password':'Transfer-photo-2026!'})
+            for index in range(parts):
+                result=owner.post(f'/api/v1/me/transfers/{token}/{index}',files={'file':('part',content[index*PART_SIZE:(index+1)*PART_SIZE])})
+                self.assertEqual(result.status_code,200,result.text)
+            result=owner.post('/api/v1/me/avatar',data={'transfer':token,'parts':parts,'filename':'large.png'})
+            self.assertEqual(result.status_code,200,result.text)
+            self.assertEqual(owner.get(result.json()['user']['avatarUrl']).status_code,200)
+            self.assertEqual(owner.delete('/api/v1/me/avatar').status_code,200)
+
+    def test_large_document_transfer_is_private_and_round_trips(self):
+        import time
+        import uuid
+        from app.transfers import PART_SIZE
+        token=f'{int(time.time())}-{uuid.uuid4().hex}'
+        content=b'Large private document\n' * 250000
+        parts=(len(content)+PART_SIZE-1)//PART_SIZE
+        for index in range(parts):
+            response=client.post(f'/api/v1/me/transfers/{token}/{index}',
+                files={'file':('part',content[index*PART_SIZE:(index+1)*PART_SIZE])})
+            self.assertEqual(response.status_code,200,response.text)
+        account=client.post('/api/v1/users',json={'name':'Transfer stranger','email':'transfer-stranger@example.test','password':'Transfer-test-2026!','role':'Comercial'})
+        self.assertEqual(account.status_code,201,account.text)
+        with TestClient(app) as stranger:
+            stranger.post('/api/v1/auth/login',json={'email':'transfer-stranger@example.test','password':'Transfer-test-2026!'})
+            stolen=stranger.post('/api/v1/documents',data={'transfer':token,'parts':parts,'filename':'private.txt'})
+            self.assertEqual(stolen.status_code,422)
+        result=client.post('/api/v1/documents',data={'transfer':token,'parts':parts,'filename':'large.txt','category':'General'})
+        self.assertEqual(result.status_code,201,result.text)
+        document=result.json()
+        restored=b''.join(client.get(f'/api/v1/documents/{document["id"]}/download?part={i}').content for i in range(parts))
+        self.assertEqual(restored,content)
+        self.assertEqual(client.get(f'/api/v1/documents/{document["id"]}/download?part=-1').status_code,404)
+        self.assertEqual(client.post('/api/v1/documents',data={'transfer':token,'parts':parts,'filename':'reuse.txt'}).status_code,422)
+        self.assertEqual(client.post(f'/api/v1/me/transfers/{token}/5',files={'file':('part',b'test')}).status_code,422)
+        self.assertEqual(client.delete(f'/api/v1/documents/{document["id"]}').status_code,200)
+
     def test_document_deletion_permissions_and_storage_failure(self):
         from unittest.mock import patch
         from pathlib import Path

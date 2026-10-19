@@ -39,10 +39,43 @@ class S3Storage:
         finally:
             body.close()
 
+class DatabaseStorage:
+    """Private files persisted in PostgreSQL, never on ephemeral function disks."""
+    provider = 'database'
+
+    def put(self, key, content):
+        from sqlalchemy.orm import Session
+        from .database import engine
+        from .models import StoredFile
+        with Session(engine) as session, session.begin():
+            session.merge(StoredFile(key=key, content=content))
+
+    def delete(self, key):
+        from sqlalchemy.orm import Session
+        from .database import engine
+        from .models import StoredFile
+        with Session(engine) as session, session.begin():
+            row = session.get(StoredFile, key)
+            if row:
+                session.delete(row)
+
+    def get(self, key):
+        from sqlalchemy.orm import Session
+        from .database import engine
+        from .models import StoredFile
+        with Session(engine) as session:
+            row = session.get(StoredFile, key)
+            if row is None:
+                raise FileNotFoundError(key)
+            return row.content
+
+
 def document_storage(provider=None):
     provider = provider or os.getenv('DOCUMENT_STORAGE', 'local')
     if provider == 'local':
         return LocalStorage()
     if provider == 's3':
         return S3Storage()
-    raise RuntimeError('DOCUMENT_STORAGE must be local or s3')
+    if provider == 'database':
+        return DatabaseStorage()
+    raise RuntimeError('DOCUMENT_STORAGE must be local, s3 or database')

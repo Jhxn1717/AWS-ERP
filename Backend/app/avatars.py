@@ -1,30 +1,36 @@
 """Authenticated profile photo storage; decoded images are normalized before saving."""
 import io
-import os
 import re
 import uuid
 import warnings
-from pathlib import Path
 
-from fastapi import File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy.orm import Session
+from .storage import document_storage, LocalStorage
+from .transfers import assembled_file, discard_parts
 
 def register_avatar_routes(app,engine,Record,public_user,audit,now):
-    storage=Path(os.getenv('DOCUMENTS_DIR',str(Path(__file__).resolve().parents[1]/'uploads')))/'avatars'
+    storage=document_storage()
+    if isinstance(storage, LocalStorage):
+        storage.root=storage.root/'avatars'
 
     def photo_path(key):
         if not re.fullmatch(r'[a-f0-9]{32}\.png',key or ''): raise HTTPException(404,'Foto no encontrada.')
-        return storage/key
+        return key
 
     def cleanup(key):
         if key:
-            try: photo_path(key).unlink(missing_ok=True)
+            try: storage.delete(photo_path(key))
             except OSError: pass
 
     @app.post('/api/v1/me/avatar')
-    async def upload_avatar(request:Request,file:UploadFile=File(...)):
+    async def upload_avatar(request:Request,file:UploadFile|None=File(None),transfer:str=Form(''),parts:int=Form(0),filename:str=Form('')):
+        if transfer:
+            file=assembled_file(request,transfer,parts,filename,5*1024*1024)
+            discard_parts(request,transfer,parts)
+        if file is None: raise HTTPException(422,'Selecciona una imagen.')
         content=await file.read(5*1024*1024+1)
         if len(content)>5*1024*1024: raise HTTPException(413,'La foto debe pesar como máximo 5 MB.')
         try:
@@ -41,11 +47,10 @@ def register_avatar_routes(app,engine,Record,public_user,audit,now):
                     output=io.BytesIO();normalized.save(output,format='PNG')
         except (UnidentifiedImageError,OSError,ValueError,SyntaxError,Image.DecompressionBombError,Image.DecompressionBombWarning):
             raise HTTPException(422,'Selecciona una imagen JPG, PNG o WebP válida, de hasta 16 megapíxeles.')
-        storage.mkdir(parents=True,exist_ok=True)
         key=uuid.uuid4().hex+'.png';path=photo_path(key)
         old_key=None
         try:
-            path.write_bytes(output.getvalue())
+            storage.put(path,output.getvalue())
             with Session(engine) as s,s.begin():
                 u=s.get(Record,request.state.user['id']);old_key=u.data.get('avatarKey')
                 u.data={**u.data,'avatarKey':key,'avatarUpdatedAt':now()}
@@ -73,5 +78,6 @@ def register_avatar_routes(app,engine,Record,public_user,audit,now):
             u=s.get(Record,uid)
             if not u or u.kind!='users' or u.data.get('avatarKey')!=key: raise HTTPException(404,'Foto no encontrada.')
         path=photo_path(key)
-        if not path.is_file(): raise HTTPException(404,'Foto no encontrada.')
-        return FileResponse(path,media_type='image/png',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
+        try: content=storage.get(path)
+        except FileNotFoundError: raise HTTPException(404,'Foto no encontrada.')
+        return Response(content,media_type='image/png',headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
