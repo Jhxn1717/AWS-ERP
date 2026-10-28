@@ -25,6 +25,269 @@ def tearDownModule():
     tmp.cleanup()
 
 class BusinessFlowTests(unittest.TestCase):
+    def test_auto_csv_permissions_follow_detected_type(self):
+        password='Testing-csv-2026!'
+        created=client.post('/api/v1/users',json={'name':'Importador comercial','email':'csv-role@example.test','password':password,'role':'Comercial'})
+        self.assertEqual(created.status_code,201,created.text)
+        content=b'tipo_registro,nombre,tipo_documento,documento,correo,telefono\nclientes,Cliente CSV,DNI,09876543,csv@example.test,999\n'
+        with TestClient(app) as commercial:
+            self.assertEqual(commercial.post('/api/v1/auth/login',json={'email':'csv-role@example.test','password':password}).status_code,200)
+            allowed=commercial.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')})
+            self.assertEqual(allowed.status_code,200,allowed.text)
+            supplier=content.replace(b'clientes,Cliente CSV,DNI,09876543',b'proveedores,Proveedor CSV,RUC,20900000001')
+            self.assertEqual(commercial.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',supplier,'text/csv')}).status_code,403)
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')}).status_code,401)
+
+    def test_csv_import_preview_commit_duplicates_and_validation(self):
+        from pathlib import Path
+        samples=Path(__file__).resolve().parents[2]/'Frontend'/'public'/'samples'
+        for kind,filename,path in [('products','productos-5.csv','products'),('customers','clientes-5.csv','contacts/customers'),('suppliers','proveedores-5.csv','contacts/suppliers')]:
+            content=(samples/filename).read_bytes()
+            before=client.get('/api/v1/workspace').json()
+            preview=client.post(f'/api/v1/{path}/import/preview',files={'file':(filename,content,'text/csv')})
+            self.assertEqual(preview.status_code,200,preview.text)
+            self.assertEqual(preview.json()['count'],5)
+            automatic=client.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')})
+            self.assertEqual(automatic.status_code,200,automatic.text)
+            self.assertEqual(automatic.json()['kind'],kind)
+            self.assertEqual(len(client.get('/api/v1/workspace').json()[kind]),len(before[kind]))
+            imported=client.post('/api/v1/imports/csv',files={'file':('archivo.csv',content,'text/csv')})
+            self.assertEqual(imported.status_code,201,imported.text)
+            self.assertEqual(imported.json()['count'],5)
+            if kind=='customers':self.assertEqual(imported.json()['rows'][2]['taxId'],'01234561')
+            self.assertEqual(client.post(f'/api/v1/{path}/import',files={'file':(filename,content,'text/csv')}).status_code,409)
+            self.assertEqual(len(client.get('/api/v1/workspace').json()[kind]),len(before[kind])+5)
+        before=client.get('/api/v1/workspace').json()
+        bad=b'nombre,sku,categoria,precio,costo,stock,stock_minimo\nValido,ATOMIC-CSV-01,Pruebas,10,5,2,1\nInvalido,ATOMIC-CSV-02,Pruebas,10,5,-1,1\n'
+        rejected=client.post('/api/v1/products/import',files={'file':('bad.csv',bad,'text/csv')})
+        self.assertEqual(rejected.status_code,422,rejected.text)
+        self.assertIn('Fila 3',rejected.json()['detail'])
+        after=client.get('/api/v1/workspace').json()
+        self.assertEqual(len(after['products']),len(before['products']))
+        self.assertEqual(len(after['movements']),len(before['movements']))
+        semicolon=b'\xef\xbb\xbfnombre;sku;categoria;precio;costo;stock;stock_minimo\nSemicolon;SEMI-CSV-01;Pruebas;10,50;5;2;1\n'
+        valid=client.post('/api/v1/products/import/preview',files={'file':('excel.csv',semicolon,'text/csv')})
+        self.assertEqual(valid.status_code,200,valid.text)
+        self.assertEqual(valid.json()['rows'][0]['price'],'10.50')
+        for invalid in [b'nombre,sku\nProducto,SKU\n',bad.replace(b'ATOMIC-CSV-02',b'ATOMIC-CSV-01').replace(b'-1',b'1'),b'\xff\xfeINVALID']:
+            self.assertIn(client.post('/api/v1/products/import',files={'file':('bad.csv',invalid,'text/csv')}).status_code,[409,422])
+        with TestClient(app) as anonymous:
+            self.assertEqual(anonymous.post('/api/v1/products/import',files={'file':('bad.csv',bad,'text/csv')}).status_code,401)
+
+    def test_payment_method_is_required_for_collections_and_checkout(self):
+        before=client.get('/api/v1/workspace').json()
+        customer=before['customers'][0]
+        product=client.post('/api/v1/products',json={'name':'Required method','sku':'REQUIRED-METHOD-01','category':'Pruebas','price':100,'cost':50,'stock':5,'minimum':1}).json()
+        payload={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}]}
+        sale=client.post('/api/v1/orders/sales',json=payload).json()
+        before=client.get('/api/v1/workspace').json()
+        for method in [{},{'method':''},{'method':None}]:
+            payment=client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':10,**method})
+            self.assertEqual(payment.status_code,422,payment.text)
+            checkout=client.post('/api/v1/orders/sales',json={**payload,'emitReceipt':True,'initialPayment':method})
+            self.assertEqual(checkout.status_code,422,checkout.text)
+        after=client.get('/api/v1/workspace').json()
+        self.assertEqual(len(after['payments']),len(before['payments']))
+        self.assertEqual(len(after['sales']),len(before['sales']))
+        self.assertEqual(next(r for r in after['sales'] if r['id']==sale['id'])['paid'],0)
+        self.assertEqual(next(r for r in after['products'] if r['id']==product['id'])['stock'],4)
+
+    def test_dni_customer_validation_edit_and_supplier_rules(self):
+        body={'name':'Cliente con DNI','documentType':'DNI','taxId':'01234567','email':'dni@example.test','phone':'999000001'}
+        created=client.post('/api/v1/contacts/customers',json=body)
+        self.assertEqual(created.status_code,201,created.text)
+        customer=created.json()
+        self.assertEqual(customer['taxId'],'01234567')
+        self.assertEqual(customer['documentType'],'DNI')
+        self.assertEqual(client.post('/api/v1/contacts/customers',json=body).status_code,409)
+        self.assertEqual(client.post('/api/v1/contacts/suppliers',json=body).status_code,422)
+        for invalid in [{**body,'taxId':'1234567'},{**body,'taxId':'12345678901'},{**body,'documentType':'RUC'},{**body,'documentType':'Otro'}]:
+            self.assertEqual(client.post('/api/v1/contacts/customers',json=invalid).status_code,422)
+        updated=client.put(f"/api/v1/contacts/customers/{customer['id']}",json={**body,'documentType':'RUC','taxId':'20999888776'})
+        self.assertEqual(updated.status_code,200,updated.text)
+        self.assertEqual(updated.json()['documentType'],'RUC')
+
+    def test_sales_issue_document_from_identity_and_keep_snapshot(self):
+        from datetime import datetime,timedelta,timezone
+        product=client.post('/api/v1/products',json={'name':'Receipt product','sku':'RECEIPT-AUTO-01','category':'Pruebas','price':118,'cost':50,'stock':10,'minimum':1}).json()
+        contacts=[]
+        for doc,number in [('DNI','01234568'),('RUC','20999888775')]:
+            body={'name':'Cliente '+doc,'documentType':doc,'taxId':number,'email':'receipt@example.test'}
+            customer=client.post('/api/v1/contacts/customers',json=body).json();contacts.append((body,customer))
+            sale=client.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}],'emitReceipt':True})
+            self.assertEqual(sale.status_code,201,sale.text)
+            invoice=sale.json()['invoice'];expected='Boleta' if doc=='DNI' else 'Factura'
+            self.assertEqual(invoice['type'],expected)
+            self.assertEqual(invoice['contact']['documentType'],doc)
+            self.assertEqual(invoice['contact']['taxId'],number)
+            self.assertEqual((invoice['subtotal'],invoice['tax'],invoice['total']),(100,18,118))
+            self.assertEqual(client.post(f"/api/v1/orders/sales/{sale.json()['id']}/invoice",json={'dueDate':(datetime.now(timezone.utc)+timedelta(days=2)).date().isoformat()}).status_code,409)
+        body,customer=contacts[0]
+        unissued=client.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}]}).json()
+        changed=client.put(f"/api/v1/contacts/customers/{customer['id']}",json={**body,'documentType':'RUC','taxId':'20999888774'})
+        self.assertEqual(changed.status_code,200,changed.text)
+        issued=client.post(f"/api/v1/orders/sales/{unissued['id']}/invoice",json={'dueDate':(datetime.now(timezone.utc)+timedelta(days=2)).date().isoformat()})
+        self.assertEqual(issued.status_code,201,issued.text)
+        self.assertEqual(issued.json()['invoice']['type'],'Boleta')
+        self.assertEqual(issued.json()['invoice']['contact']['taxId'],'01234568')
+
+    def test_sale_receipt_and_card_collection_are_one_transaction(self):
+        product=client.post('/api/v1/products',json={'name':'Card checkout','sku':'CARD-CHECKOUT-01','category':'Pruebas','price':118,'cost':50,'stock':5,'minimum':1}).json()
+        customer=client.post('/api/v1/contacts/customers',json={'name':'Checkout DNI','documentType':'DNI','taxId':'01234569','email':'checkout@example.test'}).json()
+        payload={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':2}],'emitReceipt':True,'initialPayment':{'method':'Tarjeta','paymentReference':'  000-VOUCHER-12  '}}
+        before=client.get('/api/v1/workspace').json()
+        rejected=client.post('/api/v1/orders/sales',json={**payload,'receiptDueDate':'2000-01-01'})
+        self.assertEqual(rejected.status_code,422,rejected.text)
+        after=client.get('/api/v1/workspace').json()
+        self.assertEqual(len(after['sales']),len(before['sales']))
+        self.assertEqual(len(after['payments']),len(before['payments']))
+        self.assertEqual(next(p for p in after['products'] if p['id']==product['id'])['stock'],5)
+        result=client.post('/api/v1/orders/sales',json=payload)
+        self.assertEqual(result.status_code,201,result.text)
+        sale=result.json()
+        self.assertEqual((sale['status'],sale['paid'],sale['invoice']['type']),('Pagado',236,'Boleta'))
+        workspace=client.get('/api/v1/workspace').json()
+        payments=[p for p in workspace['payments'] if p['orderId']==sale['id']]
+        self.assertEqual(len(payments),1)
+        self.assertEqual((payments[0]['method'],payments[0]['paymentReference'],payments[0]['amount']),('Tarjeta','000-VOUCHER-12',236))
+        self.assertEqual(next(p for p in workspace['products'] if p['id']==product['id'])['stock'],3)
+
+    def test_partial_collections_keep_independent_payment_methods(self):
+        workspace=client.get('/api/v1/workspace').json()
+        product=client.post('/api/v1/products',json={'name':'Payment method item','sku':'METHOD-FLOW-01','category':'Pruebas','price':100,'cost':50,'stock':5,'minimum':1}).json()
+        customer=workspace['customers'][0]
+        sale=client.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}]}).json()
+        self.assertEqual(client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':25,'method':'Unknown'}).status_code,422)
+        for amount,method,reference in [(25,'Yape','00001234'),(75,'Tarjeta','VOUCHER-02')]:
+            payment=client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':amount,'method':method,'paymentReference':reference})
+            self.assertEqual(payment.status_code,201,payment.text)
+            self.assertEqual((payment.json()['method'],payment.json()['paymentReference']),(method,reference))
+        workspace=client.get('/api/v1/workspace').json()
+        saved=next(r for r in workspace['sales'] if r['id']==sale['id'])
+        self.assertEqual((saved['status'],saved['paid']),('Pagado',100))
+        self.assertEqual(len([p for p in workspace['payments'] if p['orderId']==sale['id']]),2)
+
+    def test_dispatched_sale_cannot_be_cancelled_and_invalid_stage_is_a_conflict(self):
+        product=client.post('/api/v1/products',json={'name':'Dispatch guard','sku':'DISPATCH-GUARD-01','category':'Pruebas','price':100,'cost':50,'stock':10,'minimum':1}).json()
+        customer=client.get('/api/v1/workspace').json()['customers'][0]
+        created=client.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}]})
+        self.assertEqual(created.status_code,201,created.text)
+        order=created.json();url=f"/api/v1/orders/sales/{order['id']}"
+        for stage in ['Preparando','Despachado']:
+            response=client.post(url+'/tracking',json={'stage':stage,'note':'Despacho de prueba'})
+            self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(client.post(url+'/cancel').status_code,409)
+        workspace=client.get('/api/v1/workspace').json()
+        self.assertEqual(next(p for p in workspace['products'] if p['id']==product['id'])['stock'],9)
+        from sqlalchemy.orm import Session
+        from app.models import Record
+        with Session(engine) as session,session.begin():
+            stored=session.get(Record,order['id']);stored.data={**stored.data,'deliveryStage':'Unknown legacy stage'}
+        self.assertEqual(client.post(url+'/tracking',json={'stage':'Entregado','note':'No continuar estado incorrecto'}).status_code,409)
+
+    def test_quote_conversion_preserves_prices_and_is_atomic(self):
+        from datetime import datetime, timedelta, timezone
+        product=client.post('/api/v1/products',json={'name':'Quote item','sku':'QUOTE-FLOW-01','category':'Pruebas','price':118,'cost':50,'stock':2,'minimum':1}).json()
+        customer=client.post('/api/v1/contacts/customers',json={'name':'Quote customer','taxId':'20987654320','email':'quote@example.test','phone':''}).json()
+        future=(datetime.now(timezone.utc)+timedelta(days=10)).date().isoformat()
+        body={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':3}],'validUntil':future,'deliveryDate':future,'paymentDays':30,'notes':'Commercial terms'}
+        before=client.get('/api/v1/workspace').json()
+        quote=client.post('/api/v1/quotes',json=body)
+        self.assertEqual(quote.status_code,201,quote.text)
+        q=quote.json();url=f"/api/v1/quotes/{q['id']}"
+        workspace=client.get('/api/v1/workspace').json()
+        self.assertEqual(len(workspace['sales']),len(before['sales']))
+        self.assertEqual(next(p for p in workspace['products'] if p['id']==product['id'])['stock'],2)
+        self.assertEqual(client.post(url+'/confirm').status_code,409)
+        workspace=client.get('/api/v1/workspace').json()
+        self.assertEqual(next(r for r in workspace['quotes'] if r['id']==q['id'])['status'],'Cotizaci\u00f3n')
+        client.post('/api/v1/inventory/adjustments',json={'productId':product['id'],'quantity':2,'reason':'Restock quote item'})
+        changed=client.put(f"/api/v1/products/{product['id']}",json={**{k:product[k] for k in ['name','sku','category','cost','minimum']},'price':200,'stock':4})
+        self.assertEqual(changed.status_code,200,changed.text)
+        confirmed=client.post(url+'/confirm')
+        self.assertEqual(confirmed.status_code,200,confirmed.text)
+        sale=confirmed.json()['order']
+        self.assertEqual(sale['amount'],354)
+        self.assertEqual(sale['quoteId'],q['id'])
+        self.assertEqual(client.post(url+'/confirm').status_code,409)
+        self.assertEqual(client.post(url+'/reject').status_code,409)
+        workspace=client.get('/api/v1/workspace').json()
+        self.assertEqual(next(p for p in workspace['products'] if p['id']==product['id'])['stock'],1)
+        self.assertEqual(len([r for r in workspace['sales'] if r.get('quoteId')==q['id']]),1)
+        invoice=client.post(f"/api/v1/orders/sales/{sale['id']}/invoice",json={'dueDate':future,'taxRate':18})
+        self.assertEqual(invoice.status_code,201,invoice.text)
+        self.assertEqual(invoice.json()['invoice']['total'],354)
+
+    def test_quotes_rejection_expiry_and_permissions(self):
+        from datetime import datetime, timedelta, timezone
+        workspace=client.get('/api/v1/workspace').json()
+        future=(datetime.now(timezone.utc)+timedelta(days=10)).date().isoformat()
+        body={'contactId':workspace['customers'][0]['id'],'lines':[{'productId':workspace['products'][0]['id'],'quantity':1}],'validUntil':future,'deliveryDate':future}
+        self.assertEqual(client.post('/api/v1/quotes',json={**body,'validUntil':'2000-01-01'}).status_code,422)
+        quote=client.post('/api/v1/quotes',json=body).json()
+        url=f"/api/v1/quotes/{quote['id']}"
+        self.assertEqual(client.post(url+'/reject').status_code,200)
+        self.assertEqual(client.post(url+'/confirm').status_code,409)
+        account=client.post('/api/v1/users',json={'name':'Quote viewer','email':'quote-viewer@example.test','password':'Testing-local-2026!','role':'Consulta'})
+        self.assertEqual(account.status_code,201,account.text)
+        with TestClient(app) as viewer:
+            viewer.post('/api/v1/auth/login',json={'email':'quote-viewer@example.test','password':'Testing-local-2026!'})
+            self.assertEqual(viewer.post('/api/v1/quotes',json=body).status_code,403)
+            self.assertEqual(viewer.post(url+'/confirm').status_code,403)
+
+    def test_invoice_snapshot_tracking_and_payments(self):
+        from datetime import datetime, timedelta, timezone
+        product=client.post('/api/v1/products',json={'name':'Invoice test item','sku':'INVOICE-FLOW-01','category':'Pruebas','price':118,'cost':50,'stock':10,'minimum':1}).json()
+        customer=client.post('/api/v1/contacts/customers',json={'name':'Invoice customer','taxId':'20987654321','email':'invoice@example.test','phone':''}).json()
+        created=client.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':2}]})
+        self.assertEqual(created.status_code,201,created.text)
+        order=created.json(); url=f"/api/v1/orders/sales/{order['id']}"
+        body={'dueDate':(datetime.now(timezone.utc)+timedelta(days=7)).date().isoformat(),'taxRate':18}
+        invoice=client.post(url+'/invoice',json=body)
+        self.assertEqual(invoice.status_code,201,invoice.text)
+        snapshot=invoice.json()['invoice']
+        self.assertEqual((snapshot['subtotal'],snapshot['tax'],snapshot['total']),(200,36,236))
+        self.assertEqual(snapshot['contact']['taxId'],'20987654321')
+        self.assertEqual(client.post(url+'/invoice',json=body).status_code,409)
+        self.assertEqual(client.post(url+'/tracking',json={'stage':'Entregado','note':'No saltar pasos'}).status_code,409)
+        for stage in ['Preparando','Despachado','Entregado']:
+            result=client.post(url+'/tracking',json={'stage':stage,'note':'Constancia de prueba'})
+            self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(len(result.json()['tracking']),3)
+        self.assertEqual(result.json()['invoice'],snapshot)
+        self.assertEqual(client.post('/api/v1/payments',json={'orderId':order['id'],'amount':100,'method':'Efectivo'}).status_code,201)
+        saved=next(r for r in client.get('/api/v1/workspace').json()['sales'] if r['id']==order['id'])
+        self.assertEqual(saved['paid'],100)
+        self.assertEqual(saved['invoice'],snapshot)
+        self.assertEqual(client.post(url+'/cancel').status_code,409)
+
+    def test_invoice_purchase_validation_and_access(self):
+        from datetime import datetime, timedelta, timezone
+        workspace=client.get('/api/v1/workspace').json()
+        supplier=workspace['suppliers'][0];product=workspace['products'][0]
+        due=(datetime.now(timezone.utc)+timedelta(days=5)).date().isoformat()
+        orders=[]
+        for _ in range(2):
+            result=client.post('/api/v1/orders/purchases',json={'contactId':supplier['id'],'lines':[{'productId':product['id'],'quantity':1}]})
+            self.assertEqual(result.status_code,201,result.text)
+            orders.append(result.json())
+        url=f"/api/v1/orders/purchases/{orders[0]['id']}/invoice"
+        self.assertEqual(client.post(url,json={'dueDate':due}).status_code,422)
+        self.assertEqual(client.post(url,json={'dueDate':'2000-01-01','supplierReference':'PROV-TEST-01'}).status_code,422)
+        body={'dueDate':due,'supplierReference':'PROV-TEST-01','taxRate':0}
+        result=client.post(url,json=body)
+        self.assertEqual(result.status_code,201,result.text)
+        self.assertEqual(result.json()['invoice']['tax'],0)
+        second=f"/api/v1/orders/purchases/{orders[1]['id']}"
+        self.assertEqual(client.post(second+'/invoice',json=body).status_code,409)
+        self.assertEqual(client.post(second+'/tracking',json={'stage':'Preparando','note':'Not allowed'}).status_code,409)
+        account=client.post('/api/v1/users',json={'name':'Invoice viewer','email':'invoice-viewer@example.test','password':'Testing-local-2026!','role':'Consulta'})
+        self.assertEqual(account.status_code,201,account.text)
+        with TestClient(app) as viewer:
+            viewer.post('/api/v1/auth/login',json={'email':'invoice-viewer@example.test','password':'Testing-local-2026!'})
+            self.assertEqual(viewer.post(second+'/invoice',json={**body,'supplierReference':'OTHER'}).status_code,403)
+
     def test_read_only_user_can_transfer_large_profile_photo(self):
         import time
         import uuid
@@ -179,11 +442,11 @@ class BusinessFlowTests(unittest.TestCase):
         self.assertEqual(next(x for x in after['products'] if x['id']==p['id'])['stock'],p['stock']-1)
         self.assertEqual(len(after['movements']),len(before['movements'])+1)
         self.assertEqual(len(after['audit']),len(before['audit'])+1)
-        partial = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':100})
+        partial = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':100,'method':'Efectivo'})
         self.assertEqual(partial.status_code,201)
-        excessive = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':sale['amount']})
+        excessive = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':sale['amount'],'method':'Efectivo'})
         self.assertEqual(excessive.status_code,409)
-        final = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':sale['amount']-100})
+        final = client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':sale['amount']-100,'method':'Efectivo'})
         self.assertEqual(final.status_code,201)
         self.assertEqual(next(x for x in self.workspace()['sales'] if x['id']==sale['id'])['status'],'Pagado')
 
@@ -242,7 +505,7 @@ class BusinessFlowTests(unittest.TestCase):
         cancelled=client.post(f"/api/v1/orders/sales/{sale['id']}/cancel")
         self.assertEqual(cancelled.status_code,200,cancelled.text)
         self.assertEqual(self.workspace()['products'][0]['stock'],p['stock'])
-        self.assertEqual(client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':1}).status_code,409)
+        self.assertEqual(client.post('/api/v1/payments',json={'orderId':sale['id'],'amount':1,'method':'Efectivo'}).status_code,409)
         self.assertEqual(client.post(f"/api/v1/orders/sales/{sale['id']}/cancel").status_code,409)
 
     def test_sessions_roles_and_company(self):
@@ -427,6 +690,22 @@ class GoogleAuthTests(unittest.TestCase):
             self.assertEqual(first.status_code,200,first.text)
             self.browser.cookies.set('enterprisecloud_google_nonce',nonce,path='/api/v1/auth/google')
             self.assertEqual(self.browser.post('/api/v1/auth/google',json={'credential':'token'},headers={'Origin':'http://localhost:5173'}).status_code,401)
+
+    def test_google_port_5174_and_authenticated_writes_share_origin_policy(self):
+        from unittest.mock import patch
+        account=client.post('/api/v1/users',json={'name':'Port 5174','email':'port5174@gmail.com','password':'Testing-local-2026!','role':'Consulta'})
+        self.assertEqual(account.status_code,201,account.text)
+        nonce=self.browser.get('/api/v1/auth/google/challenge').json()['nonce']
+        claims={'sub':'port5174-subject','email':'port5174@gmail.com','email_verified':True,'nonce':nonce,'name':'Port 5174'}
+        with patch.dict(os.environ):
+            os.environ.pop('ERP_ALLOWED_ORIGINS',None)
+            with patch('app.google_login.verify_credential',return_value=claims):
+                response=self.browser.post('/api/v1/auth/google',json={'credential':'token'},headers={'Origin':'http://127.0.0.1:5174'})
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(self.browser.post('/api/v1/auth/logout',headers={'Origin':'https://evil.example'}).status_code,403)
+            self.assertEqual(self.browser.post('/api/v1/auth/logout',headers={'Origin':'http://127.0.0.1:5174'}).status_code,200)
+            with patch.dict(os.environ,ERP_ALLOWED_ORIGINS=' https://erp.example '):
+                self.assertEqual(self.browser.post('/api/v1/auth/google',json={'credential':'token'},headers={'Origin':'http://127.0.0.1:5174'}).status_code,403)
 
     def test_disabled_account_and_invalid_signature_cannot_enter(self):
         from unittest.mock import patch

@@ -158,6 +158,9 @@ class Audit(Record):
 class Company(Record):
     __mapper_args__ = {'polymorphic_identity':'company'}
 
+class Quote(Record):
+    __mapper_args__ = {'polymorphic_identity':'quotes'}
+
 RECORD_TYPES = {m.polymorphic_identity:m.class_ for m in Record.__mapper__.self_and_descendants if m.polymorphic_identity}
 
 

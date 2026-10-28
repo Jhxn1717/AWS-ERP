@@ -1,0 +1,6 @@
+﻿"tipo_registro","nombre","tipo_documento","documento","correo","telefono"
+"proveedores","Distribuidora Digital SAC","RUC","20600000001","ventas@digital.example","019980001"
+"proveedores","Tecnología Central SAC","RUC","20600000002","pedidos@central.example","019980002"
+"proveedores","Accesorios del Perú SAC","RUC","20600000003","ventas@accesorios.example","019980003"
+"proveedores","Muebles del Pacífico SAC","RUC","20600000004","pedidos@muebles.example","019980004"
+"proveedores","Suministros Lima SAC","RUC","20600000005","contacto@suministros.example","019980005"

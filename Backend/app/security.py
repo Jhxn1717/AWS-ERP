@@ -14,12 +14,13 @@ from sqlalchemy.orm import Session
 from .avatars import register_avatar_routes
 from .models import User, LoginSession
 from .validation import FormModel
+from .origins import allowed_origins
 
 actor = ContextVar('actor', default='Sistema')
 COOKIE = os.getenv('SESSION_COOKIE_NAME','enterprisecloud_session')
 ROLES = {
     'Administrador': ['*'],
-    'Comercial': ['contacts/customers', 'orders/sales', 'payments'],
+    'Comercial': ['contacts/customers', 'orders/sales', 'quotes', 'payments'],
     'Compras': ['contacts/suppliers', 'orders/purchases'],
     'Almacén': ['products', 'inventory'],
     'Finanzas': ['payments'],
@@ -101,13 +102,14 @@ def register_security(app, engine, Record, add_record, audit, now):
             return JSONResponse({'detail':'Acceso exclusivo de administración.'},status_code=403)
         if request.method not in ['GET','HEAD','OPTIONS']:
             origin = request.headers.get('origin')
-            origins = os.getenv('ERP_ALLOWED_ORIGINS','http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000,http://localhost:8000').split(',')
+            origins = allowed_origins()
             if origin and origin not in origins:
                 return JSONResponse({'detail':'Origen no permitido.'},status_code=403)
             action = path.removeprefix('/api/v1/')
             allowed = ROLES.get(u.data['role'], [])
             personal=(action.startswith('me/transfers/') and request.method=='POST') or (action=='me/profile' and request.method=='PATCH') or (action=='me/avatar' and request.method in ['POST','DELETE'])
-            permitted = '*' in allowed or action == 'auth/logout' or personal or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
+            csv_import=action in {'imports/csv','imports/csv/preview'} and any(p in allowed for p in ['products','contacts/customers','contacts/suppliers'])
+            permitted = '*' in allowed or action == 'auth/logout' or personal or csv_import or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
             if not permitted: return JSONResponse({'detail':'Tu rol no permite esta operación.'},status_code=403)
         marker = actor.set(u.data['name'])
         try: return await call_next(request)

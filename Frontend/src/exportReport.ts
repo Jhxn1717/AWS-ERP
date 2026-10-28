@@ -7,19 +7,24 @@ export function hasExportData(sections:Section[],dashboard=false):boolean {
  return (dashboard?sections.slice(2):sections).some(section=>section.rows.length>0);
 }
 const col=(key:string,label:string,kind?:Column['kind']):Column=>({key,label,kind});
-const orders=[col('reference','N.º de operación'),col('name','Empresa'),col('date','Fecha','date'),col('amount','Importe (PEN)','money'),col('paid','Pagado (PEN)','money'),col('balance','Saldo (PEN)','money'),col('status','Estado'),col('detail','Detalle de productos')];
+const orders=[col('reference','N.º de operación'),col('receiptType','Tipo de comprobante'),col('receiptNumber','Comprobante'),col('name','Empresa'),col('date','Fecha','date'),col('amount','Importe (PEN)','money'),col('paid','Pagado (PEN)','money'),col('balance','Saldo (PEN)','money'),col('status','Estado'),col('detail','Detalle de productos')];
 const schemas:Record<string,Column[]>={
  Ventas:orders,Compras:orders,
  Inventario:[col('sku','SKU'),col('name','Producto'),col('category','Categoría'),col('price','Precio (PEN)','money'),col('cost','Costo (PEN)','money'),col('stock','Stock','number'),col('minimum','Stock mínimo','number'),col('valuation','Valor al costo (PEN)','money')],
- Clientes:[col('name','Razón social'),col('taxId','RUC'),col('email','Correo electrónico'),col('phone','Teléfono'),col('status','Estado')],
- Finanzas:[col('reference','Operación'),col('name','Empresa'),col('type','Tipo'),col('date','Fecha','date'),col('amount','Importe (PEN)','money'),col('status','Estado')],
+ Clientes:[col('name','Nombre o razón social'),col('documentType','Tipo de documento'),col('taxId','Documento'),col('email','Correo electrónico'),col('phone','Teléfono'),col('status','Estado')],
+ Finanzas:[col('reference','Operación'),col('receiptType','Tipo de comprobante'),col('receiptNumber','Comprobante'),col('name','Empresa'),col('type','Tipo'),col('method','Método de pago'),col('paymentReference','Referencia de pago'),col('date','Fecha','date'),col('amount','Importe (PEN)','money'),col('status','Estado')],
  Documentos:[col('name','Documento'),col('category','Categoría'),col('reference','Referencia'),col('size','Tamaño','bytes'),col('date','Fecha','date'),col('status','Estado')],
  Movimientos:[col('name','Producto'),col('date','Fecha','date'),col('quantity','Cantidad','number'),col('stock','Stock resultante','number'),col('status','Tipo'),col('reason','Motivo')],
  Auditoría:[col('date','Fecha y hora','date'),col('name','Actividad'),col('module','Módulo'),col('user','Usuario'),col('reference','Referencia'),col('status','Estado')],
 };
 schemas.Proveedores=schemas.Clientes;
+schemas.Pagos=schemas.Finanzas;
+schemas['Cuentas por cobrar']=orders;
+schemas['Cuentas por pagar']=orders;
 export function reportSection(title:string,items:ExportRow[],schema=title,note?:string):Section {
  return {title,note,columns:schemas[schema]||schemas.Ventas,rows:items.map(r=>({...r,
+  documentType:r.documentType||(String(r.taxId||'').length===8?'DNI':'RUC'),
+  method:r.method||'No especificado',receiptType:r.invoice?(r.invoice.type||'Factura'):(r.receiptType||''),receiptNumber:r.invoice?.number||'',
   balance:r.status==='Anulado'?0:Math.max(0,Number(r.amount||0)-Number(r.paid||0)),
   valuation:Number(r.cost||0)*Number(r.stock||0),
   detail:(r.lines||[]).map((l:ExportRow)=>`${l.quantity} x ${l.name} (${Number(l.price||0).toFixed(2)} PEN)`).join(' | '),

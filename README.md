@@ -51,13 +51,13 @@ En el primer acceso, crear la cuenta administradora con nombre, correo y una con
 ## Funciones implementadas
 
 - Dashboard con indicadores calculados, gráficos, filtro de período y alertas de stock.
-- Clientes y proveedores: alta, búsqueda, detalle y validación de RUC de 11 dígitos.
+- Clientes con RUC de 11 dígitos o DNI de 8 dígitos; proveedores con RUC. Alta, edición, búsqueda y detalle.
 - Productos: alta, SKU único, precio, costo, existencias y mínimo.
 - Ventas con múltiples productos: validación de stock, descuento transaccional y auditoría.
 - Compras recibidas: incremento transaccional de existencias.
 - Pagos parciales y totales, validación del saldo, cuentas por cobrar/pagar.
 - Movimientos de inventario, historial de auditoría y reportes CSV.
-- Datos persistentes en el servidor; datos iniciales de demostración.
+- Datos persistentes en el servidor; carga inicial mediante CSV, sin registros comerciales precargados.
 - Diseño adaptable a escritorio, tablet y móvil.
 - Modo nocturno completo y persistente, con preferencia inicial del sistema.
 - Edición de contactos y productos, ajustes de inventario con motivo y rechazo de stock negativo.
@@ -67,6 +67,34 @@ En el primer acceso, crear la cuenta administradora con nombre, correo y una con
 - Contraseñas con PBKDF2-SHA256, sesiones de ocho horas, cookie HttpOnly/SameSite y cierre de sesión.
 - Panel administrativo con resumen de accesos, búsqueda de usuarios, edición de roles, matriz de permisos, sesiones activas y revocación de sesiones de terceros.
 - Perfil personal inspirado en la estructura de AWS: menú de cuenta, pestañas, temas de página, edición de datos personales y laborales, avatar por color, preferencias de correo y exportación de datos propios.
+
+## Documentos de clientes y métodos de pago
+
+Los clientes pueden registrarse y editarse con RUC de 11 dígitos o DNI de 8 dígitos. El formulario cambia entre razón social y nombres y apellidos. Los proveedores conservan el requisito de RUC. Los contactos anteriores se reconocen como RUC sin modificar sus datos.
+
+La venta directa genera un comprobante interno al confirmarse: factura para RUC y boleta para DNI. El servidor determina el tipo y conserva el documento del cliente con la venta; editarlo después no cambia las operaciones ni comprobantes anteriores. Los pedidos derivados de cotizaciones pueden emitir el comprobante desde su detalle. Los PDF y el seguimiento identifican el tipo correspondiente.
+
+Al confirmar una venta puede registrarse también su cobro total. Si queda pendiente, se pueden registrar cobros parciales posteriores. Cada cobro o pago guarda su propio método: Efectivo, Tarjeta, Yape, Plin o Transferencia, y una referencia opcional. La opción registra la operación en el ERP; no procesa cargos en tarjetas ni transferencias en las billeteras. Los pagos históricos sin método se muestran como no especificados.
+
+Estos comprobantes siguen siendo internos, sin emisión electrónica SUNAT. No se requiere migración de esquema: el número del documento sigue en el campo existente y el tipo, las identidades de la venta y los datos de pago usan los metadatos persistentes de los registros.
+
+## Cotizaciones y pedidos
+
+El dashboard comienza con **Todo lo pendiente**: cotizaciones por resolver, operaciones sin factura, cobros, pagos a proveedores, pedidos por preparar, despachos, entregas y productos por reponer. Las tarjetas filtran una agenda completa con búsqueda, prioridad, fecha, saldo y acceso directo al registro; la lista incluye paginación y un gráfico por área. Los pendientes son acumulados y no se ocultan al cambiar el mes de análisis. Las operaciones anuladas se excluyen; una misma operación puede necesitar varias acciones. La exportación del dashboard incluye esta agenda.
+
+El módulo Cotizaciones registra propuestas con cliente, productos, vigencia, entrega prevista, plazo de pago y observaciones. La propuesta no modifica existencias ni genera deuda. Confirmarla crea una sola venta, valida el stock y conserva los precios cotizados aunque el catálogo haya cambiado. Una propuesta vencida o rechazada no se puede convertir. Si falta stock, no se crea la venta ni se modifica la cotización.
+
+Ventas incorpora un panel por etapas: Confirmados, En preparación, Despachados y Entregados. Cada pedido abre directamente su detalle de factura, pagos y seguimiento. La factura propone el vencimiento según el plazo acordado y muestra la cotización de origen. Las ventas directas siguen disponibles para confirmar una operación sin propuesta previa.
+
+## Facturas y seguimiento
+
+Abrir `#facturas-y-seguimiento`. Cada venta o compra puede tener una factura interna con detalle de productos, datos de la empresa y del contacto guardados al emitir, impuesto incluido (18 % o 0 %), vencimiento y descarga PDF. Las compras requieren el número del comprobante del proveedor. La emisión no vuelve a mover existencias ni cambia el total original. No se permite emitir una segunda factura para la misma operación ni editar los datos emitidos.
+
+El detalle reúne pagos parciales, saldo, factura y seguimiento de entrega. Las ventas avanzan de Pendiente a Preparando, Despachado y Entregado, con observaciones obligatorias. Las compras se registran ya recibidas. Las anulaciones conservan el historial y se identifican en el PDF. Los permisos de ventas y compras controlan la emisión y el seguimiento; los permisos de finanzas controlan los pagos.
+
+El dashboard incorpora cobros, pagos y flujo neto del período, saldo vencido acumulado, antigüedad de cuentas por cobrar y productos más vendidos. Las deudas sin factura se muestran como operaciones por facturar y no tienen un vencimiento asignado. El registro de operaciones y pagos incluye un paso de confirmación antes de guardar.
+
+Estos comprobantes son internos; no sustituyen la facturación electrónica SUNAT. Ver [guía de demostración](docs/facturas-y-seguimiento.md).
 
 ## Mi perfil
 
@@ -97,7 +125,7 @@ La API debe escuchar en loopback en esta configuración local. Los usuarios aute
 
 Los documentos se guardan con nombres internos aleatorios en `Backend/uploads`; sus metadatos se persisten en la base de datos. Los formatos permitidos son PDF, PNG, JPG, XLSX, DOCX, CSV y TXT. No hay conexión S3 activa ni escaneo antivirus. Respaldar la base y el directorio de archivos juntos.
 
-Para un entorno de producción, configurar HTTPS, `COOKIE_SECURE=true`, `ERP_ALLOWED_ORIGINS` (orígenes separados por comas), protección frente a intentos repetidos de acceso, recuperación de cuentas, migraciones y pruebas de concurrencia en PostgreSQL. No se implementan todavía cotizaciones, pedidos por aprobación, devoluciones, múltiples almacenes, conciliación bancaria ni comprobantes fiscales. El despliegue en Vercel permite acceder por HTTPS y exige autenticación para los datos empresariales.
+Para un entorno de producción, configurar HTTPS, `COOKIE_SECURE=true`, `ERP_ALLOWED_ORIGINS` (orígenes separados por comas), protección frente a intentos repetidos de acceso, recuperación de cuentas, migraciones y pruebas de concurrencia en PostgreSQL. No se implementan todavía pedidos por aprobación, devoluciones, múltiples almacenes, conciliación bancaria ni comprobantes fiscales. El despliegue en Vercel permite acceder por HTTPS y exige autenticación para los datos empresariales.
 
 ## PostgreSQL
 
@@ -130,3 +158,8 @@ Consultar [alcance y plan](docs/alcance.md). Sin despliegue ni recursos con cost
 ## Acceso con Google
 
 El inicio con Gmail/Workspace está implementado y requiere configurar un ID de cliente web de Google. Consultar [activación y permisos](docs/acceso-con-google.md).
+
+
+## Importación CSV para presentación
+
+En Inventario, Clientes y Proveedores, usa **Importar CSV** para revisar y confirmar una carga completa. Cada modal permite descargar un ejemplo con cinco registros. Ver [la guía de importación](docs/importacion-csv.md) para el formato y el reinicio local con respaldo.

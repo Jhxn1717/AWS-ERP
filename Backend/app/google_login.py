@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from .models import GoogleChallenge, GoogleIdentity, User
+from .origins import allowed_origins
 
 CHALLENGE_COOKIE = 'enterprisecloud_google_nonce'
 
@@ -61,8 +62,7 @@ def register_google_login(app, engine, add_record, audit, now, make_session, pas
         audience=client_id()
         if not audience:
             raise HTTPException(503, 'El acceso con Google todavía no está configurado.')
-        origins=os.getenv('ERP_ALLOWED_ORIGINS','http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:8000,http://localhost:8000').split(',')
-        if request.headers.get('origin') not in [o.strip() for o in origins]:
+        if request.headers.get('origin') not in allowed_origins():
             raise HTTPException(403, 'Origen no permitido.')
         nonce=request.cookies.get(CHALLENGE_COOKIE,'')
         if not nonce or len(nonce)>128:

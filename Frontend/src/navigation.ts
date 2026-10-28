@@ -1,7 +1,16 @@
+export const adminPages:Record<string,string>={
+ 'Administración':'Resumen',Usuarios:'Usuarios','Roles y permisos':'Roles y permisos',
+ Sesiones:'Sesiones',Empresa:'Empresa','Auditoría':'Auditoría',
+};
+
+export function navigationPage(page:string):string {
+ return Object.prototype.hasOwnProperty.call(adminPages,page)?'Administración':page;
+}
+
 const normalize = (value:string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 
 export function pageHash(page:string):string {
- return '#'+(page==='Mi perfil'?'mi-perfil':normalize(page));
+ return '#'+(page==='Mi perfil'?'mi-perfil':normalize(page).replace(/\s+/g,'-'));
 }
 
 export function pageFromHash(hash:string,pages:readonly string[]):string {

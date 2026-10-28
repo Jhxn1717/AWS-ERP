@@ -1,0 +1,6 @@
+﻿"tipo_registro","nombre","tipo_documento","documento","correo","telefono"
+"clientes","Comercial Los Olivos SAC","RUC","20500000001","ventas@olivos.example","019990001"
+"clientes","Servicios Andinos SAC","RUC","20500000002","compras@andinos.example","019990002"
+"clientes","Ana Torres Rojas","DNI","01234561","ana@clientes.example","999000003"
+"clientes","Luis García Pérez","DNI","01234562","luis@clientes.example","999000004"
+"clientes","María Ramos Díaz","DNI","01234563","maria@clientes.example","999000005"

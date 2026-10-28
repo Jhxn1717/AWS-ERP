@@ -11,3 +11,4 @@
 .admin-photo-large{width:min(260px,65vw);aspect-ratio:1;margin:0 auto 20px;border-radius:14px;overflow:hidden;display:grid;place-items:center;font-size:64px}
 .admin-photo-content h3{color:var(--heading);font-size:18px;margin:0 0 8px}
 .admin-photo-content p{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:0}
+.admin-panel .admin-overview-system{grid-template-columns:minmax(0,1fr)}

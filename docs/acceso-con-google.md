@@ -6,7 +6,7 @@ El ERP integra Google Identity Services: el botón oficial abre el selector de c
 
 1. Entrar a [Google Cloud Console](https://console.cloud.google.com/) con la cuenta responsable y crear o seleccionar un proyecto.
 2. Configurar Google Auth Platform / pantalla de consentimiento: nombre de la aplicación, correo de soporte y audiencia externa si se usa Gmail personal. Si el proyecto está en pruebas y Google pide usuarios de prueba, agregar el correo que utilizarás.
-3. Crear un cliente OAuth de tipo **Aplicación web**. En **Orígenes de JavaScript autorizados**, agregar `http://localhost` y `http://localhost:5173`.
+3. Crear un cliente OAuth de tipo **Aplicación web**. En **Orígenes de JavaScript autorizados**, agregar la dirección exacta usada al abrir el ERP, incluido el puerto. Para la instancia local del puerto 5174, usar `http://127.0.0.1:5174`. `localhost` y `127.0.0.1` son orígenes distintos para Google.
 4. Copiar el **ID de cliente**, que termina en `.apps.googleusercontent.com`. Este flujo no necesita un secreto de cliente ni una URL de callback.
 5. En `.env`, en la raíz del proyecto, guardar:
 
@@ -28,7 +28,7 @@ python -m alembic upgrade head
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Reiniciar también Vite si estaba abierto, para aplicar las cabeceras de desarrollo. Abrir **http://localhost:5173**, con el mismo origen registrado en Google. No alternar entre `localhost` y `127.0.0.1` durante el acceso.
+Reiniciar también Vite si estaba abierto, para aplicar las cabeceras de desarrollo. Abrir **http://127.0.0.1:5174**, con el mismo origen registrado en Google. No alternar entre `localhost` y `127.0.0.1` durante el acceso. El backend permite por defecto los puertos locales 5173 y 5174 para Google y para las operaciones autenticadas. Si se define `ERP_ALLOWED_ORIGINS`, esa lista reemplaza los valores locales y debe incluir el origen utilizado.
 
 El identificador de cliente es público y puede compartirse para configurar la aplicación. No enviar contraseñas, códigos de recuperación ni secretos de cliente. La aplicación lee `.env` al arrancar y respeta las variables del entorno de despliegue.
 

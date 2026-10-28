@@ -1,0 +1,6 @@
+﻿"nombre","sku","categoria","precio","costo","stock","stock_minimo"
+"Laptop Lenovo IdeaPad","CSV-TEC-001","Tecnología","2499","1850","10","3"
+"Monitor LG 24 pulgadas","CSV-TEC-002","Tecnología","649","420","15","4"
+"Teclado inalámbrico","CSV-ACC-001","Accesorios","129","75","25","5"
+"Mouse inalámbrico","CSV-ACC-002","Accesorios","69","35","30","8"
+"Silla ergonómica","CSV-MOB-001","Mobiliario","499","310","8","2"

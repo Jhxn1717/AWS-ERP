@@ -44,10 +44,11 @@ def register_operations(app,engine,Record,Product,ContactIn,ProductIn,add_record
 
     @app.put('/api/v1/contacts/{kind}/{rid}')
     def edit_contact(kind:Literal['customers','suppliers'],rid:int,body:ContactIn):
+        if kind=='suppliers' and body.documentType!='RUC': raise HTTPException(422,'Los proveedores deben registrarse con RUC.')
         with Session(engine) as s,s.begin():
             r=s.get(Record,rid)
             if not r or r.kind!=kind: raise HTTPException(404,'Contacto no encontrado.')
-            if any(x.id!=rid and x.data['taxId']==body.taxId for x in s.scalars(select(Record).where(Record.kind==kind))): raise HTTPException(409,'El RUC ya está registrado.')
+            if any(x.id!=rid and x.data['taxId']==body.taxId for x in s.scalars(select(Record).where(Record.kind==kind))): raise HTTPException(409,'El documento ya está registrado.')
             r.data={**r.data,**body.model_dump()}; audit(s,'Contacto actualizado',kind,rid); return serialize(r)
 
     @app.put('/api/v1/products/{pid}')
@@ -79,6 +80,8 @@ def register_operations(app,engine,Record,Product,ContactIn,ProductIn,add_record
             if not r or r.kind!=kind: raise HTTPException(404,'Operación no encontrada.')
             if r.data['status']=='Anulado': raise HTTPException(409,'La operación ya está anulada.')
             if r.data.get('paid',0)>0: raise HTTPException(409,'No se puede anular una operación con pagos registrados.')
+            if kind=='sales' and r.data.get('deliveryStage') in ['Despachado','Entregado']:
+                raise HTTPException(409,'La venta ya fue despachada o entregada. Requiere revisión de devolución antes de revertir existencias.')
             if not r.data.get('lines'): raise HTTPException(409,'El registro histórico no contiene líneas para revertir.')
             for l in sorted(r.data['lines'],key=lambda line:line['productId']):
                 p=s.scalar(select(Product).where(Product.id==l['productId']).with_for_update())
