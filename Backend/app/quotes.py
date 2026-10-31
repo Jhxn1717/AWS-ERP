@@ -2,6 +2,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
+from typing import Literal
 from fastapi import HTTPException
 from pydantic import Field
 from sqlalchemy import select
@@ -22,6 +23,7 @@ class QuoteIn(FormModel):
     deliveryDate: date
     paymentDays: int = Field(ge=0, le=365, strict=True, default=30)
     notes: str = Field(default='', max_length=1000)
+    taxRate: Literal[0,18] = 18
 
 
 def register_quotes(app, engine, Record, Product, OrderIn, add_record, audit, now, serialize, create_order):
@@ -55,7 +57,7 @@ def register_quotes(app, engine, Record, Product, OrderIn, add_record, audit, no
                 'contactId': contact.id, 'name': contact.data['name'], 'date': now(),
                 'status': 'Cotización', 'amount': float(total), 'lines': lines,
                 'validUntil': body.validUntil.isoformat(), 'deliveryDate': body.deliveryDate.isoformat(),
-                'paymentDays': body.paymentDays, 'notes': body.notes, 'createdBy': actor.get(),
+                'paymentDays': body.paymentDays, 'notes': body.notes, 'createdBy': actor.get(), 'taxRate':body.taxRate,
             })
             quote.data = {**quote.data, 'reference': f'COT-{quote.id:06d}'}
             audit(s, 'Cotización registrada', 'Ventas', quote.id)
@@ -78,7 +80,7 @@ def register_quotes(app, engine, Record, Product, OrderIn, add_record, audit, no
                 raise HTTPException(409, 'La cotización venció. Registra una propuesta con fechas actualizadas.')
             sale = create_order(s, 'sales', OrderIn(contactId=data['contactId'], lines=[
                 {'productId': line['productId'], 'quantity': line['quantity']} for line in data['lines']
-            ]), quoted_prices={line['productId']: line['price'] for line in data['lines']}, metadata={
+            ],taxRate=data.get('taxRate',18)), quoted_prices={line['productId']: line['price'] for line in data['lines']}, metadata={
                 'quoteId': quote.id, 'quoteReference': data['reference'], 'deliveryDate': data['deliveryDate'],
                 'paymentDays': data['paymentDays'], 'notes': data['notes'], 'confirmedAt': now(),
                 'deliveryStage': 'Pendiente',

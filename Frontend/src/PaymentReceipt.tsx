@@ -18,11 +18,11 @@ export function PaymentReceipt({payment,company,close,onInvoice}:{payment:Row;co
   try{
    const [{jsPDF},{default:autoTable}]=await Promise.all([import('jspdf'),import('jspdf-autotable')]);
    const doc=new jsPDF();
-   doc.setFillColor(23,109,90);doc.rect(0,0,210,39,'F');doc.setTextColor(255);doc.setFontSize(17);doc.text('COMPROBANTE DE PAGO',14,16);doc.setFontSize(11);doc.text(number,14,27);
-   doc.setTextColor(40,55,50);doc.setFontSize(11);
+   doc.setFillColor(168,82,45);doc.rect(0,0,210,39,'F');doc.setTextColor(255);doc.setFontSize(17);doc.text('COMPROBANTE DE PAGO',14,16);doc.setFontSize(11);doc.text(number,14,27);
+   doc.setTextColor(52,55,49);doc.setFontSize(11);
    const heading=doc.splitTextToSize(`${company.name}\nRUC: ${company.taxId||'Sin configurar'}${company.address?'\n'+company.address:''}`,180);
    doc.text(heading,14,50);
-   autoTable(doc,{startY:55+heading.length*5,head:[['Detalle','Información']],body:[...details,['Importe de este pago',money(payment.amount)],...(order?[['Total de la operación',money(order.amount)],['Pagado acumulado a la fecha',money(order.paid)],['Saldo actual',money(Math.max(0,order.amount-order.paid))]]:[])],theme:'striped',headStyles:{fillColor:[23,109,90]},styles:{fontSize:10,cellPadding:4,overflow:'linebreak'},columnStyles:{0:{cellWidth:63}},margin:{bottom:25}});
+   autoTable(doc,{startY:55+heading.length*5,head:[['Detalle','Información']],body:[...details,['Importe de este pago',money(payment.amount)],...(order?[['Total de la operación',money(order.amount)],['Pagado acumulado a la fecha',money(order.paid)],['Saldo actual',money(Math.max(0,order.amount-order.paid))]]:[])],theme:'striped',headStyles:{fillColor:[168,82,45]},styles:{fontSize:10,cellPadding:4,overflow:'linebreak'},columnStyles:{0:{cellWidth:63}},margin:{bottom:25}});
    const count=doc.getNumberOfPages();
    for(let page=1;page<=count;page++){doc.setPage(page);doc.setFontSize(8);doc.setTextColor(100);doc.text('Constancia interna del pago registrado. No sustituye la factura o boleta.',14,283);doc.text(`${number} · Página ${page} de ${count}`,14,289);}
    downloadBlob(doc.output('blob'),number.toLowerCase()+'.pdf');

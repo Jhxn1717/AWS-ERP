@@ -1,4 +1,4 @@
-# EnterpriseCloud ERP
+# Nix
 
 ERP basado en el Documento Maestro del Sistema Empresarial (2026). Interfaz en español, React + TypeScript, API FastAPI y SQLAlchemy. Incluye sesiones, roles, documentos y operaciones transaccionales. La conexión AWS y la validación contable/fiscal requieren una fase de implementación y aceptación independiente.
 
@@ -163,3 +163,8 @@ El inicio con Gmail/Workspace está implementado y requiere configurar un ID de 
 ## Importación CSV para presentación
 
 En Inventario, Clientes y Proveedores, usa **Importar CSV** para revisar y confirmar una carga completa. Cada modal permite descargar un ejemplo con cinco registros. Ver [la guía de importación](docs/importacion-csv.md) para el formato y el reinicio local con respaldo.
+
+
+## Reglas de negocio de Nix
+
+Ver [producto y reglas de negocio](docs/nix-producto-y-reglas.md) para los procesos incluidos, sus efectos en inventario y saldos, el reinicio desde la web y los límites del alcance.

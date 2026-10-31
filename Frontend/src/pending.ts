@@ -1,3 +1,4 @@
+import {openIncidents} from './logistics';
 export type PendingRow={id:number;[key:string]:any};
 export const pendingCategories=[
  {key:'quotes',label:'Cotizaciones por resolver'},
@@ -37,9 +38,12 @@ export function buildPending(data:Record<string,PendingRow[]>,today=limaDate()):
   }
   if(kind==='sales'&&r.deliveryStage!=='Entregado'){
    const stage=r.deliveryStage||'Pendiente';
+   const deliveryDate=r.logistics?.scheduledDate||r.deliveryDate;
+   const incidents=openIncidents(r).length;
    const category=stage==='Despachado'?'delivery':stage==='Preparando'?'dispatch':'prepare';
-   add(category,record,{...common,action:category==='delivery'?'Confirmar entrega':category==='dispatch'?'Registrar despacho':'Preparar pedido',dueDate:r.deliveryDate,priority:priority(r.deliveryDate),note:r.deliveryDate&&r.deliveryDate<today?'La fecha prevista de entrega ya pasó.':!r.deliveryStage?'Sin estado de entrega registrado; verificar la preparación o entrega.':category==='delivery'?'Despachado; falta la constancia de entrega.':category==='dispatch'?'En preparación; falta registrar la salida para entrega.':'Confirmado; falta comenzar la preparación.'});
+   add(category,record,{...common,action:incidents?'Atender incidencia logística':category==='delivery'?'Confirmar entrega':category==='dispatch'?'Registrar despacho':'Preparar pedido',dueDate:deliveryDate,priority:incidents?'urgent':priority(deliveryDate),note:incidents?`${incidents} incidencia(s) pendiente(s) en la entrega.`:deliveryDate&&deliveryDate<today?'La fecha prevista de entrega ya pasó.':!r.deliveryStage?'Sin estado de entrega registrado; verificar la preparación o entrega.':category==='delivery'?'Despachado; falta la constancia de entrega.':category==='dispatch'?'En preparación; falta registrar la salida para entrega.':'Confirmado; falta comenzar la preparación.'});
   }
+  if(kind==='sales'&&r.deliveryStage==='Entregado'&&openIncidents(r).length)add('delivery',record,{...common,action:'Resolver incidencia posterior a la entrega',priority:'urgent',note:`${openIncidents(r).length} incidencia(s) pendiente(s). La entrega ya fue confirmada.`});
  }
  for(const r of data.products||[]){
   if(r.stock>0&&r.stock>=r.minimum)continue;

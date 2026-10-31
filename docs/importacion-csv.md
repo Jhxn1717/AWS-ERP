@@ -23,6 +23,8 @@ Cabecera de productos: `nombre,sku,categoria,precio,costo,stock,stock_minimo`.
 
 Cabecera de clientes y proveedores: `tipo_registro,nombre,tipo_documento,documento,correo,telefono`. La columna `tipo_registro` contiene `clientes` o `proveedores` en todas las filas. Permite reconocer el contenido incluso si renombras el archivo. Los CSV anteriores sin esa columna siguen siendo reconocidos si su nombre incluye `clientes` o `proveedores`. Si no existe información para distinguirlos, se muestra un error en lugar de importar en el catálogo equivocado.
 
+También se admiten las columnas opcionales `direccion` y `persona_contacto`. El paquete `Frontend/public/samples/prueba-completa/` incluye cinco registros completos de cada catálogo y una guía para probar ventas con RUC y DNI, crédito, pagos parciales y reposición. Los registros son ficticios.
+
 Después de cargar los archivos, crea ventas y compras desde sus módulos. La carga CSV corresponde a los catálogos; no inventa facturas, pagos ni operaciones comerciales.
 
 ## Reiniciar una presentación local

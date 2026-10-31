@@ -1,4 +1,4 @@
-# Conoce tu proyecto EnterpriseCloud
+# Conoce tu proyecto Nix
 
 El proyecto tiene dos partes que trabajan juntas: **Frontend** presenta las pantallas y **Backend** procesa y guarda las operaciones. Una pantalla puede pedir una venta, pero el servidor decide si esa venta cumple las reglas.
 

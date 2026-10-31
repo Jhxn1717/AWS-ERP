@@ -1,0 +1,6 @@
+﻿"tipo_registro","nombre","sku","categoria","precio","costo","stock","stock_minimo"
+"productos","Laptop empresarial 15 pulgadas","NIX-PRUEBA-TEC-001","Computación","3540","2500","10","3"
+"productos","Monitor profesional 27 pulgadas","NIX-PRUEBA-TEC-002","Monitores","1180","780","15","4"
+"productos","Teclado inalámbrico","NIX-PRUEBA-ACC-001","Accesorios","118","65","20","5"
+"productos","Mouse inalámbrico","NIX-PRUEBA-ACC-002","Accesorios","59","30","2","5"
+"productos","Impresora multifuncional","NIX-PRUEBA-IMP-001","Impresión","826","520","0","2"

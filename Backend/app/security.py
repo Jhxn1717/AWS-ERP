@@ -109,7 +109,9 @@ def register_security(app, engine, Record, add_record, audit, now):
             allowed = ROLES.get(u.data['role'], [])
             personal=(action.startswith('me/transfers/') and request.method=='POST') or (action=='me/profile' and request.method=='PATCH') or (action=='me/avatar' and request.method in ['POST','DELETE'])
             csv_import=action in {'imports/csv','imports/csv/preview'} and any(p in allowed for p in ['products','contacts/customers','contacts/suppliers'])
-            permitted = '*' in allowed or action == 'auth/logout' or personal or csv_import or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
+            segments=action.split('/')
+            warehouse_delivery=(u.data['role']=='Almacén' and request.method=='POST' and len(segments)>=4 and segments[:2]==['orders','sales'] and segments[2].isdigit() and (segments[3:]==['tracking'] or segments[3:]==['logistics'] or segments[3:]==['logistics','events']))
+            permitted = '*' in allowed or action == 'auth/logout' or personal or csv_import or warehouse_delivery or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
             if not permitted: return JSONResponse({'detail':'Tu rol no permite esta operación.'},status_code=403)
         marker = actor.set(u.data['name'])
         try: return await call_next(request)
@@ -141,7 +143,7 @@ def register_security(app, engine, Record, add_record, audit, now):
     def export_profile(request:Request):
         with Session(engine) as s:
             u=s.get(Record,request.state.user['id'])
-            return {'exportedAt':now(),'account':public_user(u),'scope':'Datos de tu cuenta y preferencias personales en EnterpriseCloud'}
+            return {'exportedAt':now(),'account':public_user(u),'scope':'Datos de tu cuenta y preferencias personales en Nix'}
 
     @app.post('/api/v1/auth/setup', status_code=201)
     def setup(body: UserIn, response: Response):

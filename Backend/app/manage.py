@@ -11,7 +11,7 @@ from .main import engine, Record, add_record, audit, now
 from .security import UserIn, actor, password_hash
 
 def main():
-    parser = argparse.ArgumentParser(description='Administración local de EnterpriseCloud')
+    parser = argparse.ArgumentParser(description='Administración local de Nix')
     parser.add_argument('command', choices=['set-admin'])
     parser.add_argument('--email', required=True)
     parser.add_argument('--name', default='Administrador')

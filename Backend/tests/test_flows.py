@@ -25,6 +25,122 @@ def tearDownModule():
     tmp.cleanup()
 
 class BusinessFlowTests(unittest.TestCase):
+    def test_logistics_assignment_positions_incidents_and_closed_delivery(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        customer=client.post('/api/v1/contacts/customers',json={'name':'Logistics customer','taxId':'20988771122','email':'logistics@example.test','phone':'999123456'}).json()
+        product=client.post('/api/v1/products',json={'name':'Logistics item','sku':'LOGISTICS-01','category':'Pruebas','price':118,'cost':50,'stock':5,'minimum':1}).json()
+        order=client.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}],'emitReceipt':True}).json()
+        url=f"/api/v1/orders/sales/{order['id']}"
+        event={'type':'position','note':'Reportado por el conductor','latitude':-12.0464,'longitude':-77.0428}
+        self.assertEqual(client.post(url+'/logistics/events',json=event).status_code,409)
+        assignment={'carrier':'Transporte de prueba','driver':'Conductor de prueba','phone':'999123456','plate':'ABC-123','origin':'Almacen principal','destination':'Av. Prueba 100, Lima','scheduledDate':datetime.now(ZoneInfo('America/Lima')).date().isoformat(),'dispatchReference':'DESP-01','note':'Programacion inicial'}
+        for changes in [{'carrier':'  '},{'scheduledDate':'2000-01-01'}]:
+            self.assertEqual(client.post(url+'/logistics',json={**assignment,**changes}).status_code,422)
+        result=client.post(url+'/logistics',json=assignment)
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(result.json()['logistics']['destination'],assignment['destination'])
+        for role,email in [('Almacén','logistics-warehouse@example.test'),('Consulta','logistics-viewer@example.test')]:
+            created_user=client.post('/api/v1/users',json={'name':'Logistics '+role,'email':email,'password':'Testing-local-2026!','role':role})
+            self.assertEqual(created_user.status_code,201,created_user.text)
+            with TestClient(app) as worker:
+                self.assertEqual(worker.post('/api/v1/auth/login',json={'email':email,'password':'Testing-local-2026!'}).status_code,200)
+                self.assertEqual(worker.post(url+'/logistics/events',json=event).status_code,201 if role=='Almacén' else 403)
+                self.assertEqual(worker.post('/api/v1/orders/sales',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}]}).status_code,403)
+                self.assertEqual(worker.post(url+'/invoice',json={'dueDate':assignment['scheduledDate']}).status_code,403)
+        for changes in [{'latitude':91},{'longitude':181},{'latitude':None},{'type':'incident'},{'incidentId':'unexpected'}]:
+            self.assertEqual(client.post(url+'/logistics/events',json={**event,**changes}).status_code,422)
+        result=client.post(url+'/logistics/events',json=event)
+        self.assertEqual(result.status_code,201,result.text)
+        position=result.json()['logisticsEvents'][-1]
+        self.assertEqual((position['latitude'],position['longitude']),(-12.0464,-77.0428))
+        self.assertTrue(position['user'] and position['date'])
+        result=client.post(url+'/logistics/events',json={'type':'incident','note':'Demora por trafico'})
+        incident=result.json()['logisticsEvents'][-1]['id']
+        resolution={'type':'resolution','incidentId':incident,'note':'Se retomo la ruta'}
+        self.assertEqual(client.post(url+'/logistics/events',json={**resolution,'incidentId':'unknown'}).status_code,404)
+        self.assertEqual(client.post(url+'/logistics/events',json=resolution).status_code,201)
+        self.assertEqual(client.post(url+'/logistics/events',json=resolution).status_code,409)
+        second=client.post(url+'/logistics/events',json={'type':'incident','note':'Pendiente de confirmar receptor'}).json()['logisticsEvents'][-1]['id']
+        for stage in ['Preparando','Despachado','Entregado']:
+            self.assertEqual(client.post(url+'/tracking',json={'stage':stage,'note':'Avance confirmado por operador'}).status_code,200)
+        self.assertEqual(client.post(url+'/logistics',json=assignment).status_code,409)
+        self.assertEqual(client.post(url+'/logistics/events',json=event).status_code,409)
+        self.assertEqual(client.post(url+'/logistics/events',json={**resolution,'incidentId':second}).status_code,201)
+        saved=next(s for s in client.get('/api/v1/workspace').json()['sales'] if s['id']==order['id'])
+        self.assertEqual(saved['invoice'],order['invoice'])
+        self.assertEqual((saved['amount'],saved['paid'],saved['status']),(118,0,'Pendiente'))
+        self.assertEqual(len(saved['logisticsEvents']),7)
+        purchase=client.post('/api/v1/orders/purchases',json={'contactId':client.get('/api/v1/workspace').json()['suppliers'][0]['id'],'lines':[{'productId':product['id'],'quantity':1}]}).json()
+        self.assertEqual(client.post(f"/api/v1/orders/sales/{purchase['id']}/logistics",json=assignment).status_code,404)
+
+    def test_full_csv_import_preserves_extended_contact_fields(self):
+        from pathlib import Path
+        folder=Path(__file__).resolve().parents[2]/'Frontend'/'public'/'samples'/'prueba-completa'
+        for name,kind in [('productos','products'),('clientes','customers'),('proveedores','suppliers')]:
+            content=(folder/(name+'-completo-5.csv')).read_bytes()
+            preview=client.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')})
+            self.assertEqual(preview.status_code,200,preview.text)
+            self.assertEqual((preview.json()['kind'],preview.json()['count']),(kind,5))
+            saved=client.post('/api/v1/imports/csv',files={'file':('archivo.csv',content,'text/csv')})
+            self.assertEqual(saved.status_code,201,saved.text)
+            self.assertEqual(saved.json()['count'],5)
+            if kind!='products':
+                self.assertTrue(all(row['address'] and row['contactPerson'] for row in saved.json()['rows']))
+            if kind=='customers':self.assertEqual(saved.json()['rows'][2]['taxId'],'01234671')
+            if kind=='products':self.assertEqual(saved.json()['rows'][-1]['stock'],0)
+
+    def test_commercial_form_terms_and_contact_details_are_preserved(self):
+        from datetime import datetime,timedelta
+        from zoneinfo import ZoneInfo
+        today=datetime.now(ZoneInfo('America/Lima')).date()
+        customer_body={'name':'Cliente formulario completo','taxId':'20988776655','email':'forms@example.test','phone':'999123456','address':'Av. Comercial 123, Lima','contactPerson':'Ana Torres'}
+        customer=client.post('/api/v1/contacts/customers',json=customer_body).json()
+        product=client.post('/api/v1/products',json={'name':'Producto formulario','sku':'FORM-COMPLETE-01','category':'Pruebas','price':118,'cost':50,'stock':8,'minimum':1}).json()
+        body={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}],'emitReceipt':True,'taxRate':18,'paymentDays':15,'receiptDueDate':(today+timedelta(days=15)).isoformat(),'deliveryDate':(today+timedelta(days=2)).isoformat(),'notes':'  Coordinar recepción con almacén.  '}
+        result=client.post('/api/v1/orders/sales',json=body)
+        self.assertEqual(result.status_code,201,result.text)
+        sale=result.json()
+        self.assertEqual((sale['paymentDays'],sale['notes'],sale['warehouse']),(15,'Coordinar recepción con almacén.','Almacén principal'))
+        self.assertTrue(sale['createdBy'])
+        self.assertEqual(sale['deliveryDate'],body['deliveryDate'])
+        self.assertEqual(sale['invoice']['dueDate'],body['receiptDueDate'])
+        self.assertEqual(sale['invoice']['contact']['address'],customer_body['address'])
+        self.assertEqual(sale['invoice']['contact']['contactPerson'],'Ana Torres')
+        self.assertEqual((sale['invoice']['subtotal'],sale['invoice']['tax'],sale['invoice']['total']),(100,18,118))
+        edited=client.put(f"/api/v1/contacts/customers/{customer['id']}",json={**customer_body,'address':'Dirección nueva'})
+        self.assertEqual(edited.status_code,200,edited.text)
+        saved=next(row for row in client.get('/api/v1/workspace').json()['sales'] if row['id']==sale['id'])
+        self.assertEqual(saved['invoice']['contact']['address'],customer_body['address'])
+        for changes in [{'paymentDays':-1},{'taxRate':12},{'notes':'x'*1001},{'deliveryDate':(today-timedelta(days=1)).isoformat()}]:
+            invalid=client.post('/api/v1/orders/sales',json={**body,**changes})
+            self.assertEqual(invalid.status_code,422,invalid.text)
+        workspace=client.get('/api/v1/workspace').json()
+        self.assertEqual(next(row for row in workspace['products'] if row['id']==product['id'])['stock'],7)
+        initial=[row for row in workspace['movements'] if row['productId']==product['id'] and row['status']=='Stock inicial']
+        self.assertEqual(len(initial),1)
+        self.assertEqual(initial[0]['quantity'],8)
+        implicit=client.post('/api/v1/orders/sales',json={key:value for key,value in body.items() if key!='receiptDueDate'})
+        self.assertEqual(implicit.status_code,201,implicit.text)
+        self.assertEqual(implicit.json()['invoice']['dueDate'],body['receiptDueDate'])
+
+    def test_quote_conversion_preserves_selected_zero_tax(self):
+        from datetime import datetime,timedelta
+        from zoneinfo import ZoneInfo
+        future=(datetime.now(ZoneInfo('America/Lima')).date()+timedelta(days=3)).isoformat()
+        customer=client.get('/api/v1/workspace').json()['customers'][0]
+        product=client.post('/api/v1/products',json={'name':'Producto sin IGV','sku':'QUOTE-TAX-ZERO-01','category':'Pruebas','price':100,'cost':30,'stock':5,'minimum':1}).json()
+        quote=client.post('/api/v1/quotes',json={'contactId':customer['id'],'lines':[{'productId':product['id'],'quantity':1}],'validUntil':future,'deliveryDate':future,'taxRate':0,'notes':'Operación sin impuesto.'})
+        self.assertEqual(quote.status_code,201,quote.text)
+        self.assertEqual(quote.json()['taxRate'],0)
+        confirmed=client.post(f"/api/v1/quotes/{quote.json()['id']}/confirm")
+        self.assertEqual(confirmed.status_code,200,confirmed.text)
+        sale=confirmed.json()['order']
+        self.assertEqual(sale['taxRate'],0)
+        issued=client.post(f"/api/v1/orders/sales/{sale['id']}/invoice",json={'dueDate':future,'taxRate':0})
+        self.assertEqual(issued.status_code,201,issued.text)
+        self.assertEqual((issued.json()['invoice']['tax'],issued.json()['invoice']['total']),(0,100))
+
     def test_auto_csv_permissions_follow_detected_type(self):
         password='Testing-csv-2026!'
         created=client.post('/api/v1/users',json={'name':'Importador comercial','email':'csv-role@example.test','password':password,'role':'Comercial'})

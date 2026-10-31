@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 PRODUCT_COLUMNS={'nombre':'name','sku':'sku','categoria':'category','precio':'price','costo':'cost','stock':'stock','stock_minimo':'minimum'}
 CONTACT_COLUMNS={'nombre':'name','tipo_documento':'documentType','documento':'taxId','correo':'email','telefono':'phone'}
+CONTACT_OPTIONAL_COLUMNS={'direccion':'address','persona_contacto':'contactPerson'}
 KINDS={'productos':'products','products':'products','clientes':'customers','customers':'customers','proveedores':'suppliers','suppliers':'suppliers'}
 
 def detect_csv(content,filename=''):
@@ -30,7 +31,7 @@ def detect_csv(content,filename=''):
         if len(tags)!=1 or next(iter(tags),'') not in KINDS: raise HTTPException(422,'El CSV debe identificar un único tipo_registro: productos, clientes o proveedores.')
         return KINDS[next(iter(tags))]
     if set(headers)==set(PRODUCT_COLUMNS): return 'products'
-    if set(headers)==set(CONTACT_COLUMNS):
+    if set(headers)-set(CONTACT_OPTIONAL_COLUMNS)==set(CONTACT_COLUMNS):
         name=unicodedata.normalize('NFD',filename.lower())
         tokens=set(re.findall(r'[a-z]+',name))
         matches={KINDS[token] for token in tokens if token in KINDS and KINDS[token]!='products'}
@@ -42,13 +43,16 @@ def parse_csv(content,kind,ProductIn,ContactIn):
     if len(content)>1024*1024: raise HTTPException(413,'El CSV debe pesar como máximo 1 MB.')
     try: text=content.decode('utf-8-sig')
     except UnicodeDecodeError: raise HTTPException(422,'Guarda el archivo CSV con codificación UTF-8.')
-    columns=PRODUCT_COLUMNS if kind=='products' else CONTACT_COLUMNS
+    required=PRODUCT_COLUMNS if kind=='products' else CONTACT_COLUMNS
+    optional={} if kind=='products' else CONTACT_OPTIONAL_COLUMNS
+    columns={**required,**optional}
     try:
         dialect=csv.Sniffer().sniff(text[:8192],delimiters=',;')
         reader=csv.DictReader(io.StringIO(text,newline=''),dialect=dialect,strict=True)
         headers=[h.strip().lower() for h in (reader.fieldnames or [])]
-        if len(headers)!=len(set(headers)) or set(headers)-{'tipo_registro'}!=set(columns):
-            raise HTTPException(422,'Las columnas deben ser: '+', '.join(columns)+'.')
+        fields=set(headers)-{'tipo_registro'}
+        if len(headers)!=len(set(headers)) or not set(required).issubset(fields) or not fields.issubset(columns):
+            raise HTTPException(422,'Columnas requeridas: '+', '.join(required)+('. Opcionales: '+', '.join(optional) if optional else '')+'.')
         reader.fieldnames=headers
         rows=[];seen=set()
         for row in reader:

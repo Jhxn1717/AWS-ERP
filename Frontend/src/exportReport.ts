@@ -61,48 +61,48 @@ export async function createReportPdf(report:Report):Promise<Blob>{
  const [{jsPDF},{autoTable}]=await Promise.all([import('jspdf'),import('jspdf-autotable')]);
  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
  const width=doc.internal.pageSize.getWidth(),height=doc.internal.pageSize.getHeight();
- doc.setProperties({title:report.title,subject:report.scope,author:report.company,creator:'EnterpriseCloud ERP'});
+ doc.setProperties({title:report.title,subject:report.scope,author:report.company,creator:'Nix'});
  const text=(value:string)=>value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'').replace(/[^\u0020-\u00ff\n\r]/g,'-');
  const fit=(value:string,size:number,max:number)=>{doc.setFontSize(size);return doc.splitTextToSize(text(value),max) as string[]};
  const header=()=>{
-  doc.setFillColor(16,44,42);doc.rect(0,0,width,29,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');
-  doc.setFontSize(9);doc.text('ENTERPRISECLOUD / REPORTE EMPRESARIAL',14,10);
+  doc.setFillColor(36,39,35);doc.rect(0,0,width,29,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');
+  doc.setFontSize(9);doc.text('NIX / REPORTE EMPRESARIAL',14,10);
   doc.setFontSize(17);doc.text(text(report.title),14,21);
   doc.setFontSize(8);doc.setFont('helvetica','normal');
   doc.text(fit(report.company,9,95).slice(0,2),width-14,11,{align:'right'});
   doc.text(`RUC: ${text(report.taxId||'-')}  |  PEN`,width-14,23,{align:'right'});
-  doc.setTextColor(85,103,98);doc.setFontSize(8);doc.text(fit(report.scope,8,width-28).slice(0,2),14,36);
+  doc.setTextColor(111,115,107);doc.setFontSize(8);doc.text(fit(report.scope,8,width-28).slice(0,2),14,36);
  };
  header();let y=47;
  if(report.trend?.length){
   const trend=report.trend,max=Math.max(1,...trend.flatMap(r=>[r.ventas,r.compras]));
-  doc.setTextColor(24,68,57);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Evolución del período',14,y);y+=8;
+  doc.setTextColor(36,39,35);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Evolución del período',14,y);y+=8;
   const chartX=35,chartW=width-58,chartH=25;
-  doc.setDrawColor(220,230,225);doc.line(chartX,y+chartH,chartX+chartW,y+chartH);
+  doc.setDrawColor(227,225,219);doc.line(chartX,y+chartH,chartX+chartW,y+chartH);
   doc.setFontSize(7);doc.setTextColor(90);doc.text(`${max.toFixed(2)} PEN`,14,y+2);doc.text('0',29,y+chartH);
-  for(const [key,color] of [['ventas',[22,138,115]],['compras',[130,145,159]]] as const){
+  for(const [key,color] of [['ventas',[168,82,45]],['compras',[130,145,159]]] as const){
    doc.setDrawColor(color[0],color[1],color[2]);doc.setLineWidth(.7);
    trend.forEach((r,i)=>{if(i){const prev=trend[i-1];doc.line(chartX+(i-1)*chartW/Math.max(1,trend.length-1),y+chartH-prev[key]/max*chartH,chartX+i*chartW/Math.max(1,trend.length-1),y+chartH-r[key]/max*chartH);}});
    if(trend.length===1){doc.setFillColor(color[0],color[1],color[2]);doc.circle(chartX,y+chartH-trend[0][key]/max*chartH,1,'F');}
   }
   doc.setTextColor(90);doc.text(text(trend[0].day),chartX,y+chartH+5);doc.text(text(trend[trend.length-1].day),chartX+chartW,y+chartH+5,{align:'right'});
-  doc.setTextColor(22,138,115);doc.text('Ventas',width-55,y-3);doc.setTextColor(130,145,159);doc.text('Compras',width-34,y-3);y+=chartH+17;
+  doc.setTextColor(168,82,45);doc.text('Ventas',width-55,y-3);doc.setTextColor(130,145,159);doc.text('Compras',width-34,y-3);y+=chartH+17;
  }
  for(const section of report.sections){
   if(y>height-48){doc.addPage();header();y=47;}
-  doc.setTextColor(24,68,57);doc.setFont('helvetica','bold');doc.setFontSize(11);
+  doc.setTextColor(36,39,35);doc.setFont('helvetica','bold');doc.setFontSize(11);
   const heading=fit(`${section.title}  /  ${section.rows.length} registros`,11,width-28);doc.text(heading,14,y);y+=heading.length*5+2;
   if(section.note){doc.setFont('helvetica','normal');doc.setTextColor(100);const note=fit(section.note,8,width-28);doc.text(note,14,y);y+=note.length*4+3;}
   if(!section.rows.length){doc.setTextColor(110);doc.setFontSize(9);doc.text('No hay registros para este alcance.',14,y+3);y+=15;continue;}
   const numeric=Object.fromEntries(section.columns.flatMap((c,i)=>c.kind==='money'||c.kind==='number'?[[i,{halign:'right' as const}]]:[]));
   autoTable(doc,{startY:y,margin:{top:47,bottom:17,left:14,right:14},head:[section.columns.map(c=>text(c.label))],body:section.rows.map(r=>section.columns.map(c=>text(cellValue(r,c)))),
-   theme:'striped',styles:{font:'helvetica',fontSize:8,cellPadding:3,overflow:'linebreak',textColor:[45,63,57],lineWidth:0},
-   headStyles:{fillColor:[22,111,92],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[242,247,244]},columnStyles:numeric,
+   theme:'striped',styles:{font:'helvetica',fontSize:8,cellPadding:3,overflow:'linebreak',textColor:[52,55,49],lineWidth:0},
+   headStyles:{fillColor:[168,82,45],textColor:255,fontStyle:'bold'},alternateRowStyles:{fillColor:[248,247,244]},columnStyles:numeric,
    rowPageBreak:'avoid',showHead:'everyPage',willDrawPage:()=>{header();},
   });
   y=(doc as unknown as {lastAutoTable:{finalY:number}}).lastAutoTable.finalY+12;
  }
  const count=doc.getNumberOfPages();
- for(let i=1;i<=count;i++){doc.setPage(i);doc.setDrawColor(220,230,225);doc.setLineWidth(.2);doc.line(14,height-13,width-14,height-13);doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(100);doc.text(`Generado: ${new Date(report.generated).toLocaleString('es-PE',{timeZone:'America/Lima'})} (Lima) | Importes en PEN`,14,height-8);doc.text(`Página ${i} de ${count}`,width-14,height-8,{align:'right'});}
+ for(let i=1;i<=count;i++){doc.setPage(i);doc.setDrawColor(227,225,219);doc.setLineWidth(.2);doc.line(14,height-13,width-14,height-13);doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(100);doc.text(`Generado: ${new Date(report.generated).toLocaleString('es-PE',{timeZone:'America/Lima'})} (Lima) | Importes en PEN`,14,height-8);doc.text(`Página ${i} de ${count}`,width-14,height-8,{align:'right'});}
  return doc.output('blob');
 }

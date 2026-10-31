@@ -1,7 +1,8 @@
-"""EnterpriseCloud local ERP API with authenticated workspace operations."""
+"""Nix local ERP API with authenticated workspace operations."""
 import os
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,7 +20,7 @@ from .validation import FormModel
 from .invoicing import build_receipt, contact_identity
 
 initialize_database()
-app = FastAPI(title='EnterpriseCloud API', version='0.2.0', description='ERP local con sesiones, roles, documentos y operaciones transaccionales.')
+app = FastAPI(title='Nix', version='0.2.0', description='ERP local con sesiones, roles, documentos y operaciones transaccionales.')
 
 @app.exception_handler(IntegrityError)
 async def integrity_conflict(request, exc):
@@ -44,6 +45,8 @@ class ContactIn(FormModel):
     taxId: str = Field(pattern=r'^(?:[0-9]{8}|[0-9]{11})$')
     email: str = Field(max_length=160,pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
     phone: str = Field(default='',max_length=40)
+    address: str = Field(default='',max_length=250)
+    contactPerson: str = Field(default='',max_length=100)
 
     @model_validator(mode='after')
     def document_length(self):
@@ -66,12 +69,16 @@ class LineIn(BaseModel):
 class PaymentDetails(FormModel):
     method: Literal['Efectivo','Tarjeta','Yape','Plin','Transferencia']
     paymentReference: str = Field(default='',max_length=100)
-class OrderIn(BaseModel):
+class OrderIn(FormModel):
     contactId: int
     lines: list[LineIn] = Field(min_length=1,max_length=100)
     emitReceipt: bool = False
     receiptDueDate: date | None = None
     initialPayment: PaymentDetails | None = None
+    notes: str = Field(default='',max_length=1000)
+    paymentDays: int = Field(default=0,ge=0,le=365,strict=True)
+    deliveryDate: date | None = None
+    taxRate: Literal[0,18] = 18
 class PaymentIn(PaymentDetails):
     orderId: int
     amount: Decimal = Field(gt=0,max_digits=12,decimal_places=2)
@@ -101,11 +108,15 @@ def contact(kind: Literal['customers','suppliers'], body: ContactIn):
 def product(body: ProductIn):
     with Session(engine) as s,s.begin():
         if s.scalar(select(Product).where(Product.sku==body.sku)): raise HTTPException(409,'El SKU ya está registrado.')
-        p=Product(**body.model_dump()); s.add(p); s.flush(); audit(s,'Producto creado','Inventario',p.id); return serialize(p)
+        p=Product(**body.model_dump()); s.add(p); s.flush()
+        if p.stock:add_record(s,'movements',{'productId':p.id,'name':p.name,'quantity':p.stock,'date':now(),'status':'Stock inicial','stock':p.stock,'reason':'Creación de producto'})
+        audit(s,'Producto creado','Inventario',p.id); return serialize(p)
 
 def create_order_record(s, kind, body, quoted_prices=None, metadata=None):
     if kind=='purchases' and body.emitReceipt: raise HTTPException(422,'En compras debes registrar el comprobante del proveedor.')
     if kind=='purchases' and body.initialPayment: raise HTTPException(422,'Registra el pago al proveedor desde Pagos.')
+    if kind=='purchases' and body.deliveryDate: raise HTTPException(422,'Las compras se registran ya recibidas; no tienen una entrega futura.')
+    if body.deliveryDate and body.deliveryDate<datetime.now(ZoneInfo('America/Lima')).date(): raise HTTPException(422,'La entrega prevista no puede ser anterior a hoy.')
     c=s.get(Record,body.contactId)
     if not c or c.kind!=('customers' if kind=='sales' else 'suppliers'): raise HTTPException(422,'Seleccione un contacto válido.')
     quantities={}
@@ -123,10 +134,11 @@ def create_order_record(s, kind, body, quoted_prices=None, metadata=None):
         add_record(s,'movements',{'productId':p.id,'name':p.name,'quantity':qty if kind=='purchases' else -qty,'date':now(),'status':'Entrada' if kind=='purchases' else 'Salida','stock':p.stock})
     if total>Decimal('999999999999.99'): raise HTTPException(422,'El total supera el importe permitido por operación.')
     identity=contact_identity(c.data)
-    r=add_record(s,kind,{'name':c.data['name'],'contactId':c.id,'amount':float(total),'paid':0,'date':now(),'status':'Pagado' if total==0 else 'Pendiente','lines':lines,'contactSnapshot':identity,'receiptType':'Boleta' if kind=='sales' and identity['documentType']=='DNI' else 'Factura',**(metadata or {})})
+    r=add_record(s,kind,{'name':c.data['name'],'contactId':c.id,'amount':float(total),'paid':0,'date':now(),'status':'Pagado' if total==0 else 'Pendiente','lines':lines,'contactSnapshot':identity,'receiptType':'Boleta' if kind=='sales' and identity['documentType']=='DNI' else 'Factura','notes':body.notes,'paymentDays':body.paymentDays,'deliveryDate':body.deliveryDate.isoformat() if body.deliveryDate else None,'taxRate':body.taxRate,'createdBy':actor.get(),'warehouse':'Almacén principal',**(metadata or {})})
     r.data={**r.data,'reference':f'{"VEN" if kind=="sales" else "OC"}-{datetime.now(timezone.utc).year}-{r.id:04}'}
     if body.emitReceipt:
-        receipt=build_receipt(s,Record,r,kind,now,body.receiptDueDate)
+        due=body.receiptDueDate or (datetime.now(ZoneInfo('America/Lima')).date()+timedelta(days=body.paymentDays))
+        receipt=build_receipt(s,Record,r,kind,now,due,body.taxRate)
         r.data={**r.data,'invoice':receipt}
         audit(s,receipt['type']+' interna generada: '+receipt['number'],kind,r.id)
     if body.initialPayment and total>0:
@@ -166,3 +178,6 @@ register_observability(app, engine)
 
 from .csv_import import register_csv_import
 register_csv_import(app,engine,Record,Product,ProductIn,ContactIn,add_record,audit,now,serialize)
+
+from .workspace_reset import register_workspace_reset
+register_workspace_reset(app,engine,Record,Product,audit,now,serialize)

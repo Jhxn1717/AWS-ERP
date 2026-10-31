@@ -2,7 +2,7 @@
 
 ## Decisiones de experiencia
 
-EnterpriseCloud se presenta como un espacio empresarial: navegación persistente, jerarquía tipográfica sobria, superficies blancas y acentos verde esmeralda sobre un menú oscuro. Los indicadores evitan porcentajes de crecimiento inventados: muestran valores reales de la base local. Los módulos comparten tablas, formularios, detalle, búsqueda y exportación. Los estados no dependen únicamente del color.
+Nix se presenta como un espacio empresarial: navegación persistente, jerarquía tipográfica sobria, superficies blancas y acentos verde esmeralda sobre un menú oscuro. Los indicadores evitan porcentajes de crecimiento inventados: muestran valores reales de la base local. Los módulos comparten tablas, formularios, detalle, búsqueda y exportación. Los estados no dependen únicamente del color.
 
 ## Correspondencia con el documento maestro
 

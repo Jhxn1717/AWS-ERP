@@ -4,7 +4,7 @@ import {Dialog} from './Dialog';
 import {request} from './WorkspacePanels';
 type Kind='products'|'customers'|'suppliers';
 const labels={products:'productos',customers:'clientes',suppliers:'proveedores'};
-const columns={products:[['name','Nombre'],['sku','SKU'],['category','Categoría'],['price','Precio'],['cost','Costo'],['stock','Stock'],['minimum','Mínimo']],customers:[['name','Nombre'],['documentType','Tipo'],['taxId','Documento'],['email','Correo'],['phone','Teléfono']],suppliers:[['name','Nombre'],['documentType','Tipo'],['taxId','Documento'],['email','Correo'],['phone','Teléfono']]};
+const columns={products:[['name','Nombre'],['sku','SKU'],['category','Categoría'],['price','Precio'],['cost','Costo'],['stock','Stock'],['minimum','Mínimo']],customers:[['name','Nombre'],['documentType','Tipo'],['taxId','Documento'],['email','Correo'],['phone','Teléfono'],['address','Dirección'],['contactPerson','Contacto']],suppliers:[['name','Nombre'],['documentType','Tipo'],['taxId','Documento'],['email','Correo'],['phone','Teléfono'],['address','Dirección'],['contactPerson','Contacto']]};
 export function CsvImport({kind:initialKind,close,onSaved,notify}:{kind?:Kind;close:()=>void;onSaved:()=>Promise<void>;notify:(message:string)=>void}){
  const [kind,setKind]=useState<Kind|null>(null);
  const [file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<Record<string,string|number>[]|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -20,7 +20,7 @@ export function CsvImport({kind:initialKind,close,onSaved,notify}:{kind?:Kind;cl
  }
  return <Dialog title="Importar registros desde CSV" close={close} size="detail" busy={busy} dirty={!!preview}>
   <p className="form-intro">Selecciona un CSV UTF-8. Detectaremos automáticamente si contiene productos, clientes o proveedores y mostraremos la vista previa. Se guardan todos juntos; si hay un error, no se importa ninguno.</p>
-  <a className="btn" download href={initialKind?`/samples/${labels[initialKind]}-5.csv`:'/samples/ejemplos-csv.zip'}><Download size={16}/> {initialKind?'Descargar ejemplo con 5 registros':'Descargar ejemplos con 5 registros'}</a>
+  <a className="btn" download href={initialKind?`/samples/prueba-completa/${labels[initialKind]}-completo-5.csv`:'/samples/nix-prueba-completa.zip'}><Download size={16}/> {initialKind?'Descargar ejemplo con 5 registros':'Descargar ejemplos con 5 registros'}</a>
   <label style={{marginTop:18}}>Archivo CSV<input type="file" accept=".csv,text/csv" disabled={busy} onChange={event=>{const next=event.target.files?.[0]||null;setPreview(null);setKind(null);setError('');if(next&&next.size>1024*1024){setFile(null);setError('El archivo debe pesar como máximo 1 MB.')}else {setFile(next);if(next)void process(false,next)}}}/></label>
   <p className="form-note">Separador: coma o punto y coma. Hasta 500 registros. Los SKU y documentos no pueden repetirse.</p>
   {error&&<p className="inline-error" role="alert">{error}</p>}

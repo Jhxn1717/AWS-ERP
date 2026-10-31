@@ -1,0 +1,6 @@
+﻿"tipo_registro","nombre","tipo_documento","documento","correo","telefono","direccion","persona_contacto"
+"clientes","Comercial Aurora de Prueba SAC","RUC","20990001001","compras@aurora.example","019910001","Av. Comercial 120, Los Olivos, Lima","Ana Torres"
+"clientes","Servicios Horizonte de Prueba SAC","RUC","20990001002","administracion@horizonte.example","019910002","Av. Industrial 450, Ate, Lima","Carlos Rojas"
+"clientes","Lucía Ramos Salas","DNI","01234671","lucia@clientes.example","999110003","Jr. Los Cedros 210, San Miguel, Lima","Lucía Ramos Salas"
+"clientes","Diego Pérez Torres","DNI","01234672","diego@clientes.example","999110004","Calle Las Flores 80, Surco, Lima","Diego Pérez Torres"
+"clientes","María Vega Flores","DNI","01234673","maria@clientes.example","999110005","Av. Los Próceres 320, Comas, Lima","María Vega Flores"

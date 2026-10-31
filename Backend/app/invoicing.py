@@ -4,7 +4,8 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 from fastapi import HTTPException
-from pydantic import Field
+from pydantic import Field, model_validator
+from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .validation import FormModel
@@ -15,7 +16,7 @@ def contact_identity(values):
     document_type=values.get('documentType')
     if document_type not in ('RUC','DNI'):
         document_type='DNI' if len(values.get('taxId',''))==8 else 'RUC'
-    return {**{key:values.get(key,'') for key in ['name','taxId','email','phone']},'documentType':document_type}
+    return {**{key:values.get(key,'') for key in ['name','taxId','email','phone','address','contactPerson']},'documentType':document_type}
 
 
 def build_receipt(s, Record, order, kind, now, due_date=None, tax_rate=18, supplier_reference=''):
@@ -65,6 +66,36 @@ class TrackingIn(FormModel):
     note: str = Field(min_length=3, max_length=500)
 
 
+class LogisticsIn(FormModel):
+    carrier: str = Field(min_length=2, max_length=100)
+    driver: str = Field(min_length=2, max_length=100)
+    phone: str = Field(min_length=6, max_length=30)
+    plate: str = Field(min_length=3, max_length=20)
+    origin: str = Field(min_length=3, max_length=250)
+    destination: str = Field(min_length=3, max_length=250)
+    scheduledDate: date
+    dispatchReference: str = Field(default='', max_length=60)
+    note: str = Field(min_length=3, max_length=500)
+
+
+class LogisticsEventIn(FormModel):
+    type: Literal['position', 'incident', 'resolution']
+    note: str = Field(min_length=3, max_length=500)
+    latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    incidentId: str | None = Field(default=None, max_length=36)
+
+    @model_validator(mode='after')
+    def validate_event(self):
+        if self.type=='position' and (self.latitude is None or self.longitude is None):
+            raise ValueError('Ingresa latitud y longitud para registrar una ubicación.')
+        if self.type!='position' and (self.latitude is not None or self.longitude is not None):
+            raise ValueError('Las coordenadas corresponden únicamente a una ubicación.')
+        if (self.type=='resolution') != bool(self.incidentId):
+            raise ValueError('Selecciona la incidencia que deseas resolver.')
+        return self
+
+
 def register_invoicing(app, engine, Record, audit, now, serialize):
     def get_order(s, kind, rid):
         order = s.scalar(select(Record).where(Record.id == rid).with_for_update())
@@ -73,6 +104,48 @@ def register_invoicing(app, engine, Record, audit, now, serialize):
         if order.data['status'] == 'Anulado':
             raise HTTPException(409, 'La operación está anulada.')
         return order
+
+    def append_logistics(data, event):
+        events=data.get('logisticsEvents', [])
+        if len(events)>=2000:
+            raise HTTPException(409, 'Se alcanzó el límite de eventos de esta entrega.')
+        return [*events, {'id':str(uuid4()), 'date':now(), 'user':actor.get(), **event}]
+
+    @app.post('/api/v1/orders/sales/{rid}/logistics')
+    def assign_logistics(rid:int, body:LogisticsIn):
+        with Session(engine) as s, s.begin():
+            order=get_order(s, 'sales', rid)
+            data=order.data
+            if data.get('deliveryStage')=='Entregado':
+                raise HTTPException(409, 'La entrega está cerrada; su asignación se conserva como historial.')
+            created=datetime.fromisoformat(data['date']).astimezone(ZoneInfo('America/Lima')).date()
+            if body.scheduledDate<created:
+                raise HTTPException(422, 'La entrega programada no puede ser anterior a la venta.')
+            assignment=body.model_dump(mode='json', exclude={'note'})
+            event={'type':'assignment', 'note':body.note, 'assignment':assignment}
+            order.data={**data, 'logistics':{**assignment, 'updatedAt':now()}, 'logisticsEvents':append_logistics(data,event)}
+            audit(s, 'Transporte asignado: '+body.carrier+'. '+body.note, 'sales', rid)
+            return serialize(order)
+
+    @app.post('/api/v1/orders/sales/{rid}/logistics/events', status_code=201)
+    def logistics_event(rid:int, body:LogisticsEventIn):
+        with Session(engine) as s, s.begin():
+            order=get_order(s, 'sales', rid)
+            data=order.data
+            if not data.get('logistics'):
+                raise HTTPException(409, 'Asigna el transporte antes de registrar eventos logísticos.')
+            if data.get('deliveryStage')=='Entregado' and body.type!='resolution':
+                raise HTTPException(409, 'La entrega está cerrada. Solo puedes resolver incidencias pendientes.')
+            if body.type=='resolution':
+                events=data.get('logisticsEvents', [])
+                if not any(e['id']==body.incidentId and e['type']=='incident' for e in events):
+                    raise HTTPException(404, 'Incidencia no encontrada en esta entrega.')
+                if any(e.get('incidentId')==body.incidentId for e in events):
+                    raise HTTPException(409, 'La incidencia ya está resuelta.')
+            events=append_logistics(data,body.model_dump(exclude_none=True))
+            order.data={**data, 'logisticsEvents':events}
+            audit(s, 'Evento logístico: '+body.type+'. '+body.note, 'sales', rid)
+            return serialize(order)
 
     @app.post('/api/v1/orders/{kind}/{rid}/invoice', status_code=201)
     def issue(kind: Literal['sales', 'purchases'], rid: int, body: InvoiceIn):

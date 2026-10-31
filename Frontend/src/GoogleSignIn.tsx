@@ -21,6 +21,7 @@ export function GoogleSignIn({onLogin,registration=false}:{onLogin:(user:User)=>
  useEffect(()=>setError(''),[registration]);
  useEffect(()=>{
   let active=true;
+  let resize:ResizeObserver|undefined;
   async function start(){
    setBusy(false);
    try{
@@ -34,10 +35,19 @@ export function GoogleSignIn({onLogin,registration=false}:{onLogin:(user:User)=>
      catch(e){if(active){setError((e as Error).message);setAttempt(n=>n+1)}}
      finally{if(active)setBusy(false)}
     }});
-    host.current.replaceChildren();google.accounts.id.renderButton(host.current,{type:'standard',theme:'outline',size:'medium',text:registration?'signup_with':'signin_with',shape:'rectangular',locale:'es',width:Math.min(host.current.clientWidth||320,355)});
+    let lastWidth=0;
+    const render=()=>{
+     if(!active||!host.current||!host.current.clientWidth)return;
+     // The Google iframe adds 20px around its requested button width.
+     const width=Math.max(200,Math.min(Math.floor(host.current.clientWidth)-20,355));
+     if(width===lastWidth)return;
+     lastWidth=width;host.current.replaceChildren();
+     google.accounts.id.renderButton(host.current,{type:'standard',theme:'outline',size:'medium',text:registration?'signup_with':'signin_with',shape:'rectangular',locale:'es',width});
+    };
+    render();resize=new ResizeObserver(render);resize.observe(host.current);
    }catch(e){if(active)setError((e as Error).message)}
   }
-  start();return()=>{active=false;host.current?.replaceChildren()};
+  start();return()=>{active=false;resize?.disconnect();host.current?.replaceChildren()};
  },[attempt,registration]);
  return <div className="google-signin">
   <div ref={host} className="google-button" hidden={busy} aria-label="Acceder con Google"/>

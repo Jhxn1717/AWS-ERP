@@ -4,3 +4,5 @@
 .order-progress{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.order-progress span{padding:8px 12px;border-radius:20px;background:rgba(100,110,120,.08);color:var(--muted,#718096);font-size:12px}.order-progress .complete{background:rgba(22,138,115,.13);color:#168a73;font-weight:600}
 
 .operation-title{display:flex;align-items:center;flex-wrap:wrap;gap:16px}.operation-tabs{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}.operation-tabs .btn{font-size:12px;padding:8px 12px}.operation-row-actions{display:flex;gap:8px;white-space:nowrap}.operation-row-actions .btn{padding:7px 10px;font-size:11px}.operation-view-heading{margin:0 0 20px}.operation-view-heading h3{font-size:19px}.operation-view-heading p{font-size:12px;line-height:1.6;color:var(--muted,#718096);margin-top:8px}@media(max-width:750px){.operation-title{align-items:flex-start;flex-direction:column;gap:10px}.operation-tabs{margin-bottom:10px}}
+
+.invoice-row-actions{margin:0;display:flex;flex-wrap:nowrap;gap:8px}.invoice-row-actions .btn{white-space:nowrap}

@@ -1,0 +1,46 @@
+NIX - DATOS FICTICIOS PARA PRUEBAS
+
+Incluye 5 productos, 5 clientes y 5 proveedores. Los importes son finales en PEN.
+Los nombres, documentos, direcciones y correos son ejemplos; no validan identidad fiscal.
+
+CARGA
+1. Abre Nix y pulsa Importar CSV.
+2. Selecciona productos-completo-5.csv y confirma la vista previa.
+3. Repite con clientes-completo-5.csv y proveedores-completo-5.csv.
+El tipo se reconoce automáticamente. Importa los CSV separados, no el ZIP.
+
+PRUEBA 1 - FACTURA Y CRÉDITO
+Cliente: Comercial Aurora de Prueba SAC (RUC).
+Productos: 1 laptop + 2 teclados.
+Total: S/ 3,776.00. Base: S/ 3,200.00. IGV incluido: S/ 576.00.
+Elige crédito a 15 días y agrega una fecha futura de entrega y observaciones.
+Al confirmar, debe generar una factura interna y dejar el saldo por cobrar.
+
+PRUEBA 2 - PAGO PARCIAL
+Desde Pagos, registra S/ 1,000.00 con Yape y referencia PRUEBA-YAPE-001.
+El saldo de la venta anterior debe quedar en S/ 2,776.00.
+Comprueba la descarga del comprobante de pago CP y de la factura vinculada.
+
+PRUEBA 3 - BOLETA
+Cliente: Lucía Ramos Salas (DNI con cero inicial).
+Producto: 1 mouse. Total: S/ 59.00. Base: S/ 50.00. IGV incluido: S/ 9.00.
+Selecciona registrar el cobro ahora, elige Efectivo y confirma.
+Debe emitir una boleta interna y dejar la venta pagada.
+
+PRUEBA 4 - REPOSICIÓN Y STOCK AGOTADO
+La impresora empieza sin stock: no debe permitir agregarla a una venta directa.
+Registra una compra recibida de 3 impresoras al proveedor Impresión Empresarial de Prueba SAC.
+Total de compra: S/ 1,560.00. El stock de impresoras debe subir a 3.
+Registra la factura del proveedor usando un número único, por ejemplo F001-PRUEBA-001.
+Después podrás vender 1 impresora por S/ 826.00 y el stock quedará en 2.
+
+PRUEBA 5 - COTIZACIÓN
+Cotiza 2 monitores: S/ 2,360.00, con IGV incluido de S/ 360.00.
+Selecciona vigencia y entrega futuras. Guardarla no debe descontar stock.
+Confirmarla crea una sola venta y descuenta las unidades; no permite convertirla dos veces.
+
+OTRAS VALIDACIONES
+- El mouse comienza por debajo del mínimo y debe aparecer en reposición.
+- Intentar importar nuevamente el mismo CSV debe avisar los duplicados sin crear registros adicionales.
+- No debe permitir pagar más que el saldo ni guardar pagos sin método.
+- Estos CSV cargan catálogos. Las ventas, compras y pagos se crean desde sus formularios.

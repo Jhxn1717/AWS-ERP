@@ -1,0 +1,6 @@
+﻿"tipo_registro","nombre","tipo_documento","documento","correo","telefono","direccion","persona_contacto"
+"proveedores","Distribuidora Digital de Prueba SAC","RUC","20990002001","ventas@digital.example","019920001","Av. Argentina 600, Cercado de Lima","Javier Medina"
+"proveedores","Tecnología Central de Prueba SAC","RUC","20990002002","pedidos@central.example","019920002","Av. Canadá 850, La Victoria, Lima","Sofía Castillo"
+"proveedores","Accesorios Andinos de Prueba SAC","RUC","20990002003","ventas@andinos.example","019920003","Jr. Paruro 430, Cercado de Lima","Luis Herrera"
+"proveedores","Suministros Pacífico de Prueba SAC","RUC","20990002004","pedidos@pacifico.example","019920004","Av. Colonial 1450, Callao","Paola Salazar"
+"proveedores","Impresión Empresarial de Prueba SAC","RUC","20990002005","ventas@impresion.example","019920005","Av. Aviación 1920, San Borja, Lima","Miguel Castro"

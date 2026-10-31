@@ -32,3 +32,7 @@ la siguiente carga retira las partes expiradas.
 
 El despliegue no está completo hasta comprobar `/api/v1/ready`, creación/acceso
 de administrador, operaciones, documentos y persistencia tras un nuevo despliegue.
+
+## Reinicio desde la aplicación publicada
+
+Un administrador puede entrar en **Administración → Empresa → Reiniciar datos comerciales**. El sistema prepara un respaldo JSON, muestra los registros afectados y exige descargarlo y escribir `BORRAR DATOS` antes de confirmar. El reinicio conserva cuentas, sesiones, empresa, auditoría y archivos privados. Si la información cambió después del respaldo, se rechaza la operación para preparar una copia actualizada. La eliminación se ejecuta en una transacción; no modifica el esquema ni requiere migraciones nuevas.

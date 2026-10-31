@@ -8,11 +8,29 @@ const filename=path.resolve(__dirname,'../src/pending.ts');
 const compiled=new Module(filename,module);
 compiled.filename=filename;
 compiled.paths=module.paths;
+compiled.require=function(name){
+ if(name!=='./logistics')return Module.prototype.require.call(this,name);
+ const dependency=path.resolve(__dirname,'../src/logistics.ts');
+ const loaded=new Module(dependency,module);loaded.filename=dependency;loaded.paths=module.paths;
+ loaded._compile(ts.transpileModule(fs.readFileSync(dependency,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,dependency);
+ return loaded.exports;
+};
 compiled._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{
  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText,filename);
 const {buildPending,limaDate}=compiled.exports;
 const base={id:1,reference:'VEN-1',name:'Cliente',amount:100,paid:25,status:'Parcial',lines:[{quantity:1}]};
+
+test('logistics rescheduling and unresolved incidents feed the pending agenda',()=>{
+ const sale={...base,deliveryStage:'Despachado',deliveryDate:'2026-10-01',logistics:{scheduledDate:'2026-11-05'},logisticsEvents:[{id:'issue-1',type:'incident'}]};
+ const task=buildPending({sales:[sale]},'2026-10-30').find(t=>t.category==='delivery');
+ assert.equal(task.dueDate,'2026-11-05');assert.equal(task.priority,'urgent');
+ assert.match(task.action,/incidencia/);
+ const delivered=buildPending({sales:[{...sale,deliveryStage:'Entregado'}]},'2026-10-30');
+ assert.equal(delivered.filter(t=>t.category==='delivery').length,1);
+ const resolved=buildPending({sales:[{...sale,deliveryStage:'Entregado',logisticsEvents:[...sale.logisticsEvents,{id:'resolve-1',type:'resolution',incidentId:'issue-1'}]}]},'2026-10-30');
+ assert.equal(resolved.filter(t=>t.category==='delivery').length,0);
+});
 test('pending agenda connects sales, billing, cash, quotes and replenishment',()=>{
  const data={
   quotes:[{id:10,reference:'COT-10',name:'Cliente',status:'Cotización',amount:20,validUntil:'2026-10-27'},{id:11,reference:'COT-11',name:'Cliente',status:'Cotización',amount:20,validUntil:'2026-11-01'}],
