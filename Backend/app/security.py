@@ -98,20 +98,20 @@ def register_security(app, engine, Record, add_record, audit, now):
         with Session(engine) as s: u = session_user(request,s)
         if not u: return JSONResponse({'detail':'Inicia sesión para continuar.'}, status_code=401)
         request.state.user = public_user(u)
-        if (path.startswith('/api/v1/admin') or path=='/api/v1/users' or path.startswith('/api/v1/users/')) and u.data['role']!='Administrador':
+        action = path.removeprefix('/api/v1/').rstrip('/')
+        csv_import=action in {'imports/csv','imports/csv/preview','products/import','products/import/preview','contacts/customers/import','contacts/customers/import/preview','contacts/suppliers/import','contacts/suppliers/import/preview'}
+        if (csv_import or path.startswith('/api/v1/admin') or path=='/api/v1/users' or path.startswith('/api/v1/users/')) and u.data['role']!='Administrador':
             return JSONResponse({'detail':'Acceso exclusivo de administración.'},status_code=403)
         if request.method not in ['GET','HEAD','OPTIONS']:
             origin = request.headers.get('origin')
             origins = allowed_origins()
             if origin and origin not in origins:
                 return JSONResponse({'detail':'Origen no permitido.'},status_code=403)
-            action = path.removeprefix('/api/v1/')
             allowed = ROLES.get(u.data['role'], [])
             personal=(action.startswith('me/transfers/') and request.method=='POST') or (action=='me/profile' and request.method=='PATCH') or (action=='me/avatar' and request.method in ['POST','DELETE'])
-            csv_import=action in {'imports/csv','imports/csv/preview'} and any(p in allowed for p in ['products','contacts/customers','contacts/suppliers'])
             segments=action.split('/')
             warehouse_delivery=(u.data['role']=='Almacén' and request.method=='POST' and len(segments)>=4 and segments[:2]==['orders','sales'] and segments[2].isdigit() and (segments[3:]==['tracking'] or segments[3:]==['logistics'] or segments[3:]==['logistics','events']))
-            permitted = '*' in allowed or action == 'auth/logout' or personal or csv_import or warehouse_delivery or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
+            permitted = '*' in allowed or action == 'auth/logout' or personal or warehouse_delivery or (u.data['role']!='Consulta' and action.startswith('documents')) or any(action == p or action.startswith(p+'/') for p in allowed)
             if not permitted: return JSONResponse({'detail':'Tu rol no permite esta operación.'},status_code=403)
         marker = actor.set(u.data['name'])
         try: return await call_next(request)

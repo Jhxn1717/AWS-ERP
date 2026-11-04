@@ -148,3 +148,28 @@
 @media(max-width:1100px){:root .login-story{padding:40px 34px}:root .login-side{padding-left:24px;padding-right:24px}}
 @media(max-width:740px){:root .login-layout{grid-template-columns:1fr}:root .login-story{padding:22px 28px;border-right:0;border-bottom:1px solid var(--border)}:root .login-story .brand{font-size:24px}:root .login-side{padding:72px 20px 32px;min-height:calc(100dvh - 90px)}:root .login-form{padding:26px 22px;max-width:420px}:root .login-form h2{font-size:24px}}
 @media(prefers-reduced-motion:reduce){:root *, :root *::before,:root *::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+/* Destructive maintenance has a distinct red treatment in both themes. */
+:root .admin-tabs .admin-danger-tab{color:var(--danger);margin-left:8px}
+:root .admin-tabs .admin-danger-tab.selected{background:var(--danger-soft);color:var(--danger);box-shadow:inset 0 -2px 0 var(--danger)}
+:root .admin-tabs .admin-danger-tab:hover{background:var(--danger-soft)}
+:root .workspace-reset-card{background:var(--danger-soft);border:1px solid var(--danger);margin-top:0;align-items:center;padding:26px;gap:24px}
+.reset-card-content{display:flex;align-items:flex-start;gap:16px;min-width:0}
+.reset-card-content>div{min-width:0}.reset-danger-icon{display:grid;place-items:center;flex-shrink:0;width:48px;height:48px;border:1px solid var(--danger);border-radius:9px;color:var(--danger)}
+.reset-kicker{display:block;font-size:9px;font-weight:700;letter-spacing:1.2px;color:var(--danger);margin-bottom:8px}
+:root .workspace-reset-card h3{color:var(--danger);font-size:19px}
+:root .workspace-reset-card p{color:var(--text);max-width:700px;line-height:1.8}
+:root .btn.reset-destructive{background:#ae3f35;border-color:#ae3f35;color:#fff;font-weight:600}
+:root .btn.reset-destructive:hover{background:#8f3028;border-color:#8f3028}
+:root[data-theme=dark] .btn.reset-destructive{background:#b7473d;border-color:#e9978d;color:#fff}
+:root[data-theme=dark] .btn.reset-destructive:hover{background:#ca574d}
+.reset-preserved{display:flex;align-items:flex-start;gap:11px;padding:20px 4px 24px;color:var(--muted)}
+.reset-preserved svg{flex-shrink:0;margin-top:2px;color:var(--success)}.reset-preserved p{margin:0;font-size:12px;line-height:1.8}.reset-preserved strong{color:var(--heading)}
+.reset-instructions{padding:24px}.reset-instructions ol{list-style:none;counter-reset:reset-steps;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:24px 0;padding:0}
+.reset-instructions li{counter-increment:reset-steps;position:relative;padding-left:36px;min-width:0}.reset-instructions li:before{content:counter(reset-steps);position:absolute;left:0;top:0;width:25px;height:25px;display:grid;place-items:center;border:1px solid var(--border);background:var(--canvas);border-radius:50%;color:var(--muted);font-size:11px}
+.reset-instructions li strong{display:block;font-size:12px;margin-bottom:7px;color:var(--heading)}.reset-instructions li span{display:block;font-size:12px;color:var(--muted);line-height:1.7}
+.reset-csv-downloads{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--border);padding-top:22px}.reset-csv-downloads>div{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.reset-confirm-warning{display:flex;align-items:flex-start;gap:12px;background:var(--danger-soft);border:1px solid var(--danger);border-radius:8px;padding:14px;margin:0 0 18px;color:var(--danger)}.reset-confirm-warning svg{flex-shrink:0}.reset-confirm-warning p{margin:0;font-size:12px;line-height:1.7;color:var(--text)}
+.erp-dialog .reset-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 20px}.erp-dialog .reset-counts>div{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border:1px solid var(--border);padding:12px;border-radius:6px;background:var(--canvas);min-width:0}.erp-dialog .reset-counts dt{font-size:11px;line-height:1.4}.erp-dialog .reset-counts dd{font-size:15px;font-weight:600;flex-shrink:0}
+.reset-backup-status{display:flex;align-items:flex-start;gap:9px}.reset-backup-status svg{flex-shrink:0}
+@media(max-width:900px){.reset-instructions ol{grid-template-columns:1fr;gap:18px}.reset-csv-downloads{align-items:flex-start;flex-direction:column}}
+@media(max-width:600px){:root .workspace-reset-card{padding:20px;gap:20px;align-items:stretch}.reset-card-content{gap:12px}.reset-danger-icon{width:38px;height:38px}.reset-instructions{padding:20px}.erp-dialog .reset-counts{grid-template-columns:repeat(2,minmax(0,1fr))}.reset-dialog-actions{flex-wrap:wrap}.reset-dialog-actions .reset-destructive{white-space:normal}}

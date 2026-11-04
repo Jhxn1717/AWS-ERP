@@ -10,10 +10,13 @@ Hay tres archivos de ejemplo con **5 registros ficticios cada uno** en `Frontend
 
 ## Importar desde la aplicación
 
-1. Entra en Inventario, Clientes o Proveedores.
-2. Pulsa **Importar CSV**, también disponible en el dashboard. Puedes descargar los ejemplos desde ese modal.
-3. Selecciona el archivo. El sistema reconoce su tipo y muestra automáticamente la vista previa; no hay que elegir un módulo.
-4. Revisa la tabla y pulsa **Confirmar importación**.
+1. Inicia sesión con una cuenta de **Administrador**.
+2. Abre **Administración → Importaciones**. Las cargas CSV se agrupan en Inventario (productos), Clientes y Proveedores; no aparecen en el dashboard ni en los catálogos.
+3. Descarga la plantilla del módulo y pulsa **Importar productos**, **Importar clientes** o **Importar proveedores**.
+4. Selecciona el archivo. Nix reconoce automáticamente su tipo, comprueba que corresponda al módulo elegido y muestra la vista previa. El modal no incluye un selector de tipos.
+5. Revisa la tabla y pulsa **Confirmar importación**.
+
+El servidor restringe tanto la vista previa como la carga a administradores, incluidas las rutas anteriores de importación. Los otros perfiles conservan sus permisos habituales para las operaciones individuales de sus módulos.
 
 La vista previa no guarda datos. La confirmación vuelve a validar el archivo y guarda todos los registros en una sola transacción. Los identificadores repetidos, documentos inválidos o importes incorrectos detienen toda la carga. Importar productos con stock inicial también registra su movimiento de inventario.
 
@@ -29,6 +32,8 @@ Después de cargar los archivos, crea ventas y compras desde sus módulos. La ca
 
 ## Reiniciar una presentación local
 
-Desde `Backend`, ejecuta `python -m app.reset_demo --confirm` únicamente si deseas vaciar los datos comerciales de nuevo. Antes de borrar, el comando crea y verifica una copia SQLite en `output/backups/`. Conserva usuarios, sesiones, identidad de Google, empresa y auditoría. Solo funciona con SQLite en desarrollo dentro de `Backend`; no permite reiniciar una base de producción.
+Desde **Administración → Vaciar datos**, prepara y descarga el respaldo, escribe BORRAR DATOS y confirma con la contraseña de tu cuenta de Nix. Después, el botón **Ir a Importaciones** abre las cargas por módulo.
+
+Como alternativa técnica en desarrollo, desde `Backend`, ejecuta `python -m app.reset_demo --confirm` únicamente si deseas vaciar los datos comerciales de nuevo. Antes de borrar, el comando crea y verifica una copia SQLite en `output/backups/`. Conserva usuarios, sesiones, identidad de Google, empresa y auditoría. Solo funciona con SQLite en desarrollo dentro de `Backend`; no permite reiniciar una base de producción.
 
 Las migraciones y el arranque de la API no cargan datos ficticios. `python -m app.seed` sigue siendo una herramienta explícita para pruebas antiguas, y no debe ejecutarse para la presentación vacía.

@@ -1,6 +1,6 @@
 export const adminPages:Record<string,string>={
  'Administración':'Resumen',Usuarios:'Usuarios','Roles y permisos':'Roles y permisos',
- Sesiones:'Sesiones',Empresa:'Empresa','Auditoría':'Auditoría',
+ Sesiones:'Sesiones',Empresa:'Empresa',Importaciones:'Importaciones','Auditoría':'Auditoría','Vaciar datos':'Vaciar datos',
 };
 
 export function navigationPage(page:string):string {

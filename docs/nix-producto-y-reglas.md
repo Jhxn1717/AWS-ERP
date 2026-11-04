@@ -6,7 +6,7 @@ Sistema de gestión comercial para una empresa que vende productos y administra 
 
 | Proceso | Resultado | Control de negocio |
 | --- | --- | --- |
-| Importar CSV | Crea productos, clientes o proveedores | Detecta el contenido, presenta una vista previa y guarda el lote completo. Un error o duplicado impide toda la carga. |
+| Administración → Importaciones | Crea productos, clientes o proveedores | Solo administradores. Separado en Inventario, Clientes y Proveedores. Detecta el contenido, valida el módulo, presenta una vista previa y guarda el lote completo. Un error o duplicado impide toda la carga. |
 | Cotizar | Guarda una propuesta con vigencia y precios acordados | No descuenta stock ni crea una deuda. |
 | Confirmar una cotización | Crea una venta y descuenta existencias | Valida vigencia y stock; solo permite convertir la propuesta una vez. Conserva los precios cotizados. |
 | Registrar una venta | Genera la operación, salida de stock y comprobante interno | Cliente con RUC: factura. Cliente con DNI: boleta. No admite existencias negativas. |
@@ -28,10 +28,12 @@ El dashboard prioriza cuatro indicadores, un gráfico y cinco tareas pendientes.
 
 El acceso se controla mediante sesiones y roles en el servidor. Los permisos de lectura o escritura no dependen únicamente de que un botón aparezca en la interfaz. Los datos comerciales y sus relaciones se guardan en la base; los archivos privados requieren una sesión autorizada.
 
-En Vercel, el reinicio se utiliza desde **Administración → Empresa → Reiniciar datos comerciales**. No requiere una terminal. El respaldo descargado contiene registros y referencias de documentos; los archivos adjuntos siguen en su almacenamiento privado y no se incluyen dentro de ese JSON. La recuperación del respaldo es una tarea técnica, no una función automática de importación CSV.
+En Vercel, el reinicio se utiliza desde **Administración → Vaciar datos**. No requiere una terminal. El respaldo descargado contiene registros y referencias de documentos; los archivos adjuntos siguen en su almacenamiento privado y no se incluyen dentro de ese JSON. La recuperación del respaldo es una tarea técnica, no una función automática de importación CSV.
 
 ## Límites que deben quedar claros en la presentación
 
 Los comprobantes son internos: el proyecto no está integrado con SUNAT. Las compras no implementan aprobación, recepción parcial ni múltiples almacenes. Tampoco hay un libro contable, conciliación bancaria o proceso completo de devoluciones y reembolsos. Estas funciones requieren desarrollos propios; no deben presentarse como terminadas.
 
 El criterio de calidad es que los procesos incluidos sean consistentes, verificables y trazables. Añadir un módulo al menú sin completar sus efectos en inventario, documentos y saldos no amplía por sí solo el alcance funcional.
+
+El vaciado exige la contraseña de Nix del administrador autenticado, verificada en el servidor. No sirve la contraseña de Google; las cuentas que solo utilizan Google necesitan configurar una contraseña de Nix mediante administración. La clave no se incluye en el respaldo ni en auditoría.

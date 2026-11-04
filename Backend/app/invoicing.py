@@ -76,6 +76,14 @@ class LogisticsIn(FormModel):
     scheduledDate: date
     dispatchReference: str = Field(default='', max_length=60)
     note: str = Field(min_length=3, max_length=500)
+    destinationLatitude: float | None = Field(default=None,ge=-90,le=90,allow_inf_nan=False)
+    destinationLongitude: float | None = Field(default=None,ge=-180,le=180,allow_inf_nan=False)
+
+    @model_validator(mode='after')
+    def destination_coordinates(self):
+        if (self.destinationLatitude is None)!=(self.destinationLongitude is None):
+            raise ValueError('Ingresa latitud y longitud del destino juntas.')
+        return self
 
 
 class LogisticsEventIn(FormModel):

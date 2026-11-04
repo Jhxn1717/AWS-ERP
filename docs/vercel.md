@@ -35,4 +35,6 @@ de administrador, operaciones, documentos y persistencia tras un nuevo despliegu
 
 ## Reinicio desde la aplicación publicada
 
-Un administrador puede entrar en **Administración → Empresa → Reiniciar datos comerciales**. El sistema prepara un respaldo JSON, muestra los registros afectados y exige descargarlo y escribir `BORRAR DATOS` antes de confirmar. El reinicio conserva cuentas, sesiones, empresa, auditoría y archivos privados. Si la información cambió después del respaldo, se rechaza la operación para preparar una copia actualizada. La eliminación se ejecuta en una transacción; no modifica el esquema ni requiere migraciones nuevas.
+Un administrador puede entrar en **Administración → Vaciar datos**. El sistema prepara un respaldo JSON, muestra los registros afectados y exige descargarlo, escribir `BORRAR DATOS` e introducir la contraseña de la cuenta de Nix antes de confirmar. El reinicio conserva cuentas, sesiones, empresa, auditoría y archivos privados. Si la información cambió después del respaldo, se rechaza la operación para preparar una copia actualizada. La eliminación se ejecuta en una transacción; no modifica el esquema ni requiere migraciones nuevas.
+
+El vaciado exige la contraseña de Nix del administrador autenticado, verificada en el servidor. No sirve la contraseña de Google; las cuentas que solo utilizan Google necesitan configurar una contraseña de Nix mediante administración. La clave no se incluye en el respaldo ni en auditoría.

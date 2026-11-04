@@ -13,7 +13,7 @@ compiled._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{
  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
 }).outputText,filename);
 const {pageHash,pageFromHash,adminPages,navigationPage}=compiled.exports;
-const pages=['Dashboard','Reportes','Ventas','Clientes','Compras','Proveedores','Inventario','Documentos','Finanzas','Administración','Cuentas por cobrar','Cuentas por pagar','Pagos','Usuarios','Roles y permisos','Empresa','Auditoría'];
+const pages=['Dashboard','Reportes','Ventas','Clientes','Compras','Proveedores','Inventario','Documentos','Finanzas','Administración','Cuentas por cobrar','Cuentas por pagar','Pagos','Usuarios','Roles y permisos','Empresa','Auditoría','Vaciar datos','Importaciones'];
 
 test('administration opens using its canonical URL',()=>{
  assert.equal(pageHash('Administración'),'#administracion');
@@ -44,6 +44,8 @@ test('administration sections share one menu entry and retain their own routes',
  }
  assert.equal(adminPages.Sesiones,'Sesiones');
  assert.equal(pageFromHash('#sesiones',Object.keys(adminPages)),'Sesiones');
+ assert.equal(adminPages.Importaciones,'Importaciones');
+ assert.equal(pageFromHash('#importaciones',Object.keys(adminPages)),'Importaciones');
 });
 
 test('other modules keep their own navigation entries',()=>{

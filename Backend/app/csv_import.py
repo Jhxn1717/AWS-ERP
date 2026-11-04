@@ -4,7 +4,8 @@ import io
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
-from fastapi import File, HTTPException, UploadFile, Request
+from fastapi import File, Form, HTTPException, UploadFile, Request
+from typing import Literal
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -87,14 +88,13 @@ def parse_csv(content,kind,ProductIn,ContactIn):
     except csv.Error: raise HTTPException(422,'El CSV tiene un formato inválido. Revisa el separador y las comillas.')
 
 def register_csv_import(app,engine,Record,Product,ProductIn,ContactIn,add_record,audit,now,serialize):
-    async def process(kind,file,preview,request=None):
+    async def process(kind,file,preview,expected_kind=None):
         content=await file.read(1024*1024+1)
         if kind is None:
             kind=detect_csv(content,file.filename or '')
-            from .security import ROLES
-            permissions=ROLES.get(request.state.user['role'],[])
-            required='products' if kind=='products' else 'contacts/'+kind
-            if '*' not in permissions and required not in permissions: raise HTTPException(403,'Tu rol no permite importar estos registros.')
+        if expected_kind is not None and kind!=expected_kind:
+            labels={'products':'productos','customers':'clientes','suppliers':'proveedores'}
+            raise HTTPException(422,f'El archivo contiene {labels[kind]}. Abre la importación de {labels[kind]} o selecciona un CSV de {labels[expected_kind]}.')
         rows=parse_csv(content,kind,ProductIn,ContactIn)
         with Session(engine) as session,session.begin():
             identities=set(session.scalars(select(Product.sku))) if kind=='products' else {r.data['taxId'] for r in session.scalars(select(Record).where(Record.kind==kind))}
@@ -114,15 +114,14 @@ def register_csv_import(app,engine,Record,Product,ProductIn,ContactIn,add_record
             return {'kind':kind,'count':len(created),'rows':created}
 
     @app.post('/api/v1/imports/csv/preview')
-    async def preview_auto(request:Request,file:UploadFile=File(...)):return await process(None,file,True,request)
+    async def preview_auto(request:Request,file:UploadFile=File(...),expectedKind:Literal['products','customers','suppliers']|None=Form(None)):return await process(None,file,True,expectedKind)
     @app.post('/api/v1/imports/csv',status_code=201)
-    async def import_auto(request:Request,file:UploadFile=File(...)):return await process(None,file,False,request)
+    async def import_auto(request:Request,file:UploadFile=File(...),expectedKind:Literal['products','customers','suppliers']|None=Form(None)):return await process(None,file,False,expectedKind)
 
     @app.post('/api/v1/products/import/preview')
     async def preview_products(file:UploadFile=File(...)): return await process('products',file,True)
     @app.post('/api/v1/products/import',status_code=201)
     async def import_products(file:UploadFile=File(...)): return await process('products',file,False)
-    from typing import Literal
     # Literal is resolved at declaration time; it keeps the route limited to master contacts.
     @app.post('/api/v1/contacts/{kind}/import/preview')
     async def preview_contacts(kind:Literal['customers','suppliers'],file:UploadFile=File(...)): return await process(kind,file,True)

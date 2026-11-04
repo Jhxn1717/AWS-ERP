@@ -1,0 +1,19 @@
+import {invoiceDocument,invoiceMoney as money,invoiceDate} from './invoicePresentation';
+import type {BusinessRow} from './orderView';
+import './invoiceDocument.css';
+
+export function InvoiceDocument({order,payments}:{order:BusinessRow;payments:BusinessRow[]}){
+ const bill=invoiceDocument(order,payments);
+ return <article className="invoice-document" aria-label={`${bill.type} ${bill.number}`}>
+  <header className="bill-header">
+   <div className="bill-issuer"><div className="bill-brand"><span>N</span><strong>NIX</strong></div><p className="bill-business-name">{bill.issuer.name||'Empresa sin configurar'}</p><p>{bill.issuerDocument}: {bill.issuer.taxId||'Sin configurar'}</p>{bill.issuer.address&&<p>{bill.issuer.address}</p>}{(bill.issuer.email||bill.issuer.phone)&&<p>{[bill.issuer.email,bill.issuer.phone].filter(Boolean).join(' · ')}</p>}</div>
+   <div className="bill-identity"><span>{bill.purchase?'COMPROBANTE REGISTRADO':'COMPROBANTE INTERNO'}</span><h3>{bill.type}</h3><strong>{bill.number}</strong><span className={`bill-status${bill.cancelled?' is-cancelled':bill.outstanding===0?' is-paid':''}`}>{bill.status}</span></div>
+  </header>
+  <section className="bill-customer"><span className="bill-label">{bill.purchase?'ADQUIRENTE':'CLIENTE / ADQUIRENTE'}</span><strong>{bill.customer.name||'Sin registrar'}</strong><p>{bill.customerDocument}: {bill.customer.taxId||'Sin registrar'}</p>{bill.customer.address&&<p>{bill.customer.address}</p>}{bill.customer.email&&<p>{bill.customer.email}</p>}</section>
+  <div className="bill-metadata">{[['Fecha de emisión',bill.issuedAt],['Vencimiento',bill.dueDate],['Operación',bill.reference],['Moneda','PEN · Soles']].map(([label,value])=><div key={label}><span className="bill-label">{label}</span><strong>{value}</strong></div>)}</div>
+  <div className="bill-table-scroll"><table className="bill-table"><caption>Detalle de productos</caption><thead><tr><th scope="col">N.º</th><th scope="col">Descripción</th><th scope="col">Cant.</th><th scope="col">P. unitario</th><th scope="col">Importe</th></tr></thead><tbody>{bill.lines.map(line=><tr key={line.number}><td>{String(line.number).padStart(2,'0')}</td><td>{line.name}</td><td>{line.quantity}</td><td>{money(line.price)}</td><td>{money(line.total)}</td></tr>)}</tbody></table></div>
+  <div className="bill-bottom"><div className="bill-conditions"><span className="bill-label">Condición de pago</span><strong>{bill.terms}</strong><p>Precios finales en soles{bill.taxRate>0?', con impuesto incluido':''}.</p>{bill.cancelled&&<p className="bill-cancelled-note">Operación anulada. Sin saldo exigible.</p>}</div><div className="bill-totals"><div><span>Base imponible</span><strong>{money(bill.subtotal)}</strong></div><div><span>Impuesto incluido ({bill.taxRate} %)</span><strong>{money(bill.tax)}</strong></div><div className="bill-grand-total"><span>TOTAL</span><strong>{money(bill.total)}</strong></div><div><span>Pagado acumulado</span><strong>{money(bill.paid)}</strong></div><div className="bill-balance"><span>Saldo actual</span><strong>{money(bill.outstanding)}</strong></div></div></div>
+  {bill.payments.length>0&&<section className="bill-payments"><h4>Pagos registrados</h4><div className="bill-table-scroll"><table className="bill-table"><thead><tr><th>Fecha</th><th>Método / referencia</th><th>Importe</th></tr></thead><tbody>{bill.payments.map(payment=><tr key={payment.id}><td>{invoiceDate(payment.date)}</td><td>{payment.method||'Sin especificar'}{payment.paymentReference&&<span className="bill-payment-reference">{payment.paymentReference}</span>}</td><td>{money(payment.amount)}</td></tr>)}</tbody></table></div></section>}
+  <footer className="bill-footer"><strong>NIX <span>/ GESTIÓN COMERCIAL</span></strong><p>{bill.notice}</p><p>Los pagos y saldos reflejan el estado actual de la operación.</p></footer>
+ </article>;
+}

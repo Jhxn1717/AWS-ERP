@@ -25,6 +25,16 @@ def tearDownModule():
     tmp.cleanup()
 
 class BusinessFlowTests(unittest.TestCase):
+    def test_logistics_destination_coordinates_are_optional_paired_and_bounded(self):
+        from app.invoicing import LogisticsIn
+        from pydantic import ValidationError
+        body={'carrier':'Transportes de prueba','driver':'Conductor de prueba','phone':'999000000','plate':'ABC-123','origin':'Lima centro','destination':'Surco Lima','scheduledDate':'2026-11-04','note':'Prueba de coordenadas'}
+        self.assertIsNone(LogisticsIn(**body).destinationLatitude)
+        for invalid in [{'destinationLatitude':-12},{'destinationLongitude':-77},{'destinationLatitude':91,'destinationLongitude':-77},{'destinationLatitude':-12,'destinationLongitude':181},{'destinationLatitude':float('nan'),'destinationLongitude':-77}]:
+            with self.assertRaises(ValidationError):LogisticsIn(**body,**invalid)
+        parsed=LogisticsIn(**body,destinationLatitude=0,destinationLongitude=0)
+        self.assertEqual((parsed.destinationLatitude,parsed.destinationLongitude),(0,0))
+
     def test_logistics_assignment_positions_incidents_and_closed_delivery(self):
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -34,12 +44,13 @@ class BusinessFlowTests(unittest.TestCase):
         url=f"/api/v1/orders/sales/{order['id']}"
         event={'type':'position','note':'Reportado por el conductor','latitude':-12.0464,'longitude':-77.0428}
         self.assertEqual(client.post(url+'/logistics/events',json=event).status_code,409)
-        assignment={'carrier':'Transporte de prueba','driver':'Conductor de prueba','phone':'999123456','plate':'ABC-123','origin':'Almacen principal','destination':'Av. Prueba 100, Lima','scheduledDate':datetime.now(ZoneInfo('America/Lima')).date().isoformat(),'dispatchReference':'DESP-01','note':'Programacion inicial'}
+        assignment={'carrier':'Transporte de prueba','driver':'Conductor de prueba','phone':'999123456','plate':'ABC-123','origin':'Almacen principal','destination':'Av. Prueba 100, Lima','scheduledDate':datetime.now(ZoneInfo('America/Lima')).date().isoformat(),'dispatchReference':'DESP-01','note':'Programacion inicial','destinationLatitude':-12.150556,'destinationLongitude':-77.007778}
         for changes in [{'carrier':'  '},{'scheduledDate':'2000-01-01'}]:
             self.assertEqual(client.post(url+'/logistics',json={**assignment,**changes}).status_code,422)
         result=client.post(url+'/logistics',json=assignment)
         self.assertEqual(result.status_code,200,result.text)
         self.assertEqual(result.json()['logistics']['destination'],assignment['destination'])
+        self.assertEqual((result.json()['logistics']['destinationLatitude'],result.json()['logistics']['destinationLongitude']),(-12.150556,-77.007778))
         for role,email in [('Almacén','logistics-warehouse@example.test'),('Consulta','logistics-viewer@example.test')]:
             created_user=client.post('/api/v1/users',json={'name':'Logistics '+role,'email':email,'password':'Testing-local-2026!','role':role})
             self.assertEqual(created_user.status_code,201,created_user.text)
@@ -141,19 +152,39 @@ class BusinessFlowTests(unittest.TestCase):
         self.assertEqual(issued.status_code,201,issued.text)
         self.assertEqual((issued.json()['invoice']['tax'],issued.json()['invoice']['total']),(0,100))
 
-    def test_auto_csv_permissions_follow_detected_type(self):
+    def test_csv_imports_are_exclusive_to_admin_including_legacy_routes(self):
         password='Testing-csv-2026!'
-        created=client.post('/api/v1/users',json={'name':'Importador comercial','email':'csv-role@example.test','password':password,'role':'Comercial'})
-        self.assertEqual(created.status_code,201,created.text)
         content=b'tipo_registro,nombre,tipo_documento,documento,correo,telefono\nclientes,Cliente CSV,DNI,09876543,csv@example.test,999\n'
-        with TestClient(app) as commercial:
-            self.assertEqual(commercial.post('/api/v1/auth/login',json={'email':'csv-role@example.test','password':password}).status_code,200)
-            allowed=commercial.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')})
-            self.assertEqual(allowed.status_code,200,allowed.text)
-            supplier=content.replace(b'clientes,Cliente CSV,DNI,09876543',b'proveedores,Proveedor CSV,RUC,20900000001')
-            self.assertEqual(commercial.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',supplier,'text/csv')}).status_code,403)
+        paths=['imports/csv','imports/csv/preview','products/import','products/import/preview','contacts/customers/import','contacts/customers/import/preview','contacts/suppliers/import','contacts/suppliers/import/preview']
+        for index,role in enumerate(['Comercial','Compras','Almacén','Finanzas','Consulta']):
+            email=f'csv-role-{index}@example.test'
+            created=client.post('/api/v1/users',json={'name':'Importador '+role,'email':email,'password':password,'role':role})
+            self.assertEqual(created.status_code,201,created.text)
+            with TestClient(app) as worker:
+                self.assertEqual(worker.post('/api/v1/auth/login',json={'email':email,'password':password}).status_code,200)
+                before=client.get('/api/v1/workspace').json()
+                for path in paths:
+                    with self.subTest(role=role,path=path):
+                        denied=worker.post('/api/v1/'+path,files={'file':('archivo.csv',content,'text/csv')})
+                        self.assertEqual(denied.status_code,403,denied.text)
+                after=client.get('/api/v1/workspace').json()
+                for kind in ['products','customers','suppliers','movements']:self.assertEqual(after[kind],before[kind])
+                self.assertEqual(worker.get('/api/v1/workspace').status_code,200)
+        allowed=client.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')},data={'expectedKind':'customers'})
+        self.assertEqual(allowed.status_code,200,allowed.text)
         with TestClient(app) as anonymous:
-            self.assertEqual(anonymous.post('/api/v1/imports/csv/preview',files={'file':('archivo.csv',content,'text/csv')}).status_code,401)
+            for path in paths:self.assertEqual(anonymous.post('/api/v1/'+path,files={'file':('archivo.csv',content,'text/csv')}).status_code,401)
+
+    def test_csv_module_mismatch_is_rejected_before_preview_and_commit(self):
+        content=b'tipo_registro,nombre,tipo_documento,documento,correo,telefono\nclientes,Cliente CSV,DNI,09876543,csv@example.test,999\n'
+        before=client.get('/api/v1/workspace').json()
+        for path in ['imports/csv/preview','imports/csv']:
+            for expected in ['products','suppliers']:
+                rejected=client.post('/api/v1/'+path,files={'file':('archivo.csv',content,'text/csv')},data={'expectedKind':expected})
+                self.assertEqual(rejected.status_code,422,rejected.text)
+                self.assertIn('contiene clientes',rejected.json()['detail'])
+        after=client.get('/api/v1/workspace').json()
+        for kind in ['products','customers','suppliers','movements']:self.assertEqual(after[kind],before[kind])
 
     def test_csv_import_preview_commit_duplicates_and_validation(self):
         from pathlib import Path
